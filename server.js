@@ -6,8 +6,39 @@ const path     = require('path')
 
 const app = express()
 
+// 1. Define allowed origins (including a regex for Vercel)
+const allowedOrigins = [
+  'http://localhost:5173',                          // Local Dev
+  'http://localhost:3000',                          // Alternative Local
+  'https://radhebloom.in',                          // Your main domain
+  'https://radhebloom.com',                         // Your other main domain
+  /\.vercel\.app$/                                  // ANY Vercel preview URL (Regex)
+];
+
 // Middleware
-app.use(cors({ origin: process.env.NODE_ENV === 'production' ? 'https://yourdomain.com' : 'http://localhost:5173', credentials: true }))
+// 2. Configure CORS with dynamic origin check
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+
+    // Check if origin matches any string or regex in the allowedOrigins array
+    const isAllowed = allowedOrigins.some((allowed) => {
+      if (allowed instanceof RegExp) {
+        return allowed.test(origin);
+      }
+      return allowed === origin;
+    });
+
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      console.error(`🚫 CORS blocked for origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 app.use(express.json())
 
 // DB
