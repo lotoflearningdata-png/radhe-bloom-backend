@@ -17,6 +17,15 @@ const transporter = nodemailer.createTransport({
   },
 })
 
+// Optional: verify connection on startup
+transporter.verify((error, success) => {
+  if (error) {
+    console.error('❌ Email transporter error:', error.message)
+  } else {
+    console.log('✅ Email server ready')
+  }
+})
+
 // ── BASE TEMPLATE ─────────────────────────────────────────────────
 function baseTemplate(content, title = 'Radhe Bloom') {
   return `<!DOCTYPE html>
