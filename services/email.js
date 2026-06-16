@@ -1,30 +1,16 @@
 // backend/services/email.js
-// Complete email automation for Radhe Bloom
+// Complete email automation for Radhe Bloom — Render & Resend API Compatible
 
-const nodemailer = require('nodemailer')
+const { Resend } = require('resend');
 
-// ── TRANSPORTER ──────────────────────────────────────────────────
-const transporter = nodemailer.createTransport({
-  host:   'smtp.gmail.com',
-  port:   587,
-  secure: false, // TLS not SSL
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-  tls: {
-    rejectUnauthorized: false,
-  },
-})
+// ── INITIALIZATION ───────────────────────────────────────────────
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-// Optional: verify connection on startup
-transporter.verify((error, success) => {
-  if (error) {
-    console.error('❌ Email transporter error:', error.message)
-  } else {
-    console.log('✅ Email server ready')
-  }
-})
+if (!resend) {
+  console.warn('⚠️ Email automation warning: RESEND_API_KEY is missing from environment variables.');
+} else {
+  console.log('✅ Resend email engine initialized successfully');
+}
 
 // ── BASE TEMPLATE ─────────────────────────────────────────────────
 function baseTemplate(content, title = 'Radhe Bloom') {
@@ -38,18 +24,15 @@ function baseTemplate(content, title = 'Radhe Bloom') {
 <body style="margin:0;padding:0;background:#f9f3e7;font-family:'Helvetica Neue',Arial,sans-serif;">
   <div style="max-width:600px;margin:24px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(249,127,10,0.12);">
 
-    <!-- Header -->
     <div style="background:linear-gradient(135deg,#1a0a00,#3d1f0a);padding:32px 40px;text-align:center;">
       <h1 style="color:#f97f0a;margin:0;font-size:28px;letter-spacing:1px;">🌸 Radhe Bloom</h1>
       <p style="color:#d09650;margin:6px 0 0;font-size:12px;letter-spacing:3px;text-transform:uppercase;">Divine Creations from Mathura</p>
     </div>
 
-    <!-- Content -->
     <div style="padding:36px 40px;">
       ${content}
     </div>
 
-    <!-- Footer -->
     <div style="background:#1a0a00;padding:20px 40px;text-align:center;">
       <p style="color:#f97f0a;margin:0 0 6px;font-size:13px;">🌸 Radhe Bloom</p>
       <p style="color:#d09650;margin:0;font-size:11px;">
@@ -130,6 +113,8 @@ function whatsappButton(orderId = '') {
 // 1. WELCOME EMAIL — sent on registration
 // ══════════════════════════════════════════════════════════════════
 async function sendWelcomeEmail(user) {
+  if (!resend) return console.error('❌ Resend not configured. Skipping welcome email.');
+
   const content = `
     <h2 style="color:#3d1f0a;font-size:24px;margin:0 0 8px;">Welcome to Radhe Bloom! 🙏</h2>
     <p style="color:#888;font-size:14px;margin:0 0 24px;">Your divine shopping journey begins here.</p>
@@ -155,21 +140,28 @@ async function sendWelcomeEmail(user) {
 
     <p style="color:#888;font-size:13px;text-align:center;margin-top:8px;">
       Questions? <a href="https://wa.me/919528078217" style="color:#f97f0a;">WhatsApp us</a> anytime!
-    </p>`
+    </p>`;
 
-  await transporter.sendMail({
-    from:    `"Radhe Bloom 🌸" <${process.env.EMAIL_USER}>`,
-    to:      user.email,
-    subject: `Welcome to Radhe Bloom, ${user.name}! 🌸`,
-    html:    baseTemplate(content, 'Welcome to Radhe Bloom'),
-  })
-  console.log('✅ Welcome email sent to', user.email)
+  try {
+    await resend.emails.send({
+      from: 'Radhe Bloom 🌸 <onboarding@resend.dev>', // Keep onboarding@resend.dev until domain is verified
+      to: user.email,
+      subject: `Welcome to Radhe Bloom, ${user.name}! 🌸`,
+      html: baseTemplate(content, 'Welcome to Radhe Bloom'),
+    });
+    console.log('✅ Welcome email sent to', user.email);
+  } catch (error) {
+    console.error('❌ Welcome email failed:', error.message);
+    throw error;
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
 // 2. ORDER CONFIRMATION — sent after payment verified
 // ══════════════════════════════════════════════════════════════════
 async function sendOrderConfirmation(order, invoiceBuffer = null) {
+  if (!resend) return console.error('❌ Resend not configured. Skipping order confirmation.');
+
   const shipping = order.total - (order.items || []).reduce((s, i) => s + i.price * i.qty, 0)
   const content = `
     <div style="text-align:center;margin-bottom:24px;">
@@ -204,32 +196,36 @@ async function sendOrderConfirmation(order, invoiceBuffer = null) {
 
     ${whatsappButton(order._id)}
 
-    <p style="color:#888;font-size:12px;text-align:center;">We'll send you another email once your order is shipped.</p>`
+    <p style="color:#888;font-size:12px;text-align:center;">We'll send you another email once your order is shipped.</p>`;
 
-  const mailOptions = {
-    from:    `"Radhe Bloom 🌸" <${process.env.EMAIL_USER}>`,
-    to:      order.shippingAddress?.email,
+  const emailPayload = {
+    from: 'Radhe Bloom 🌸 <onboarding@resend.dev>',
+    to: order.shippingAddress?.email,
     subject: `✅ Order Confirmed #${order._id?.toString().slice(-8).toUpperCase()} – Radhe Bloom`,
-    html:    baseTemplate(content, 'Order Confirmed'),
-  }
+    html: baseTemplate(content, 'Order Confirmed'),
+  };
 
-  // Attach invoice PDF if provided
+  // Convert buffer safely for Resend's attachment specs
   if (invoiceBuffer) {
-    mailOptions.attachments = [{
-      filename:    `Invoice_${order._id?.toString().slice(-8).toUpperCase()}.pdf`,
-      content:     invoiceBuffer,
-      contentType: 'application/pdf',
-    }]
+    emailPayload.attachments = [{
+      filename: `Invoice_${order._id?.toString().slice(-8).toUpperCase()}.pdf`,
+      content: invoiceBuffer,
+    }];
   }
 
-  await transporter.sendMail(mailOptions)
-  console.log('✅ Order confirmation sent to', order.shippingAddress?.email)
+  try {
+    await resend.emails.send(emailPayload);
+    console.log('✅ Order confirmation sent to', order.shippingAddress?.email);
+  } catch (error) {
+    console.error('❌ Order confirmation failed:', error.message);
+    throw error;
+  }
 }
 
-// ══════════════════════════════════════════════════════════════════
-// 3. ADMIN NEW ORDER ALERT
-// ══════════════════════════════════════════════════════════════════
+// ── 3. ADMIN NEW ORDER ALERT ──────────────────────────────────────
 async function sendAdminOrderAlert(order) {
+  if (!resend) return console.error('❌ Resend not configured. Skipping admin order alert.');
+
   const itemsList = (order.items || []).map(i =>
     `<li>${i.product?.name || 'Product'} × ${i.qty} = ₹${(i.price * i.qty).toFixed(2)}</li>`
   ).join('')
@@ -255,21 +251,26 @@ async function sendAdminOrderAlert(order) {
     <p style="color:#555;font-size:13px;"><strong>Ship To:</strong><br/>
     ${order.shippingAddress?.address}, ${order.shippingAddress?.city}, ${order.shippingAddress?.state} - ${order.shippingAddress?.pincode}</p>
 
-    ${ctaButton('View Order in Admin', 'https://radhebloom.in/admin/orders')}`
+    ${ctaButton('View Order in Admin', 'https://radhebloom.in/admin/orders')}`;
 
-  await transporter.sendMail({
-    from:    `"Radhe Bloom Orders" <${process.env.EMAIL_USER}>`,
-    to:      process.env.ADMIN_EMAIL || process.env.EMAIL_USER,
-    subject: `🛕 New Order ₹${order.total?.toFixed(2)} — ${order.shippingAddress?.name}`,
-    html:    baseTemplate(content, 'New Order Alert'),
-  })
-  console.log('✅ Admin order alert sent')
+  try {
+    await resend.emails.send({
+      from: 'Radhe Bloom Orders <onboarding@resend.dev>',
+      to: process.env.ADMIN_EMAIL || 'hello@radhebloom.in', 
+      subject: `🛕 New Order ₹${order.total?.toFixed(2)} — ${order.shippingAddress?.name}`,
+      html: baseTemplate(content, 'New Order Alert'),
+    });
+    console.log('✅ Admin order alert sent');
+  } catch (error) {
+    console.error('❌ Admin order alert failed:', error.message);
+    throw error;
+  }
 }
 
-// ══════════════════════════════════════════════════════════════════
-// 4. SHIPPING UPDATE — sent when status changes to "shipped"
-// ══════════════════════════════════════════════════════════════════
+// ── 4. SHIPPING UPDATE ───────────────────────────────────────────
 async function sendShippingUpdate(order) {
+  if (!resend) return console.error('❌ Resend not configured. Skipping shipping update.');
+
   const content = `
     <div style="text-align:center;margin-bottom:24px;">
       <div style="font-size:48px;">📦</div>
@@ -299,21 +300,26 @@ async function sendShippingUpdate(order) {
     ${addressBlock(order.shippingAddress)}
     ${whatsappButton(order._id)}
 
-    <p style="color:#888;font-size:12px;text-align:center;">We'll notify you once your order is delivered.</p>`
+    <p style="color:#888;font-size:12px;text-align:center;">We'll notify you once your order is delivered.</p>`;
 
-  await transporter.sendMail({
-    from:    `"Radhe Bloom 🌸" <${process.env.EMAIL_USER}>`,
-    to:      order.shippingAddress?.email,
-    subject: `📦 Your Order is Shipped! – Radhe Bloom`,
-    html:    baseTemplate(content, 'Order Shipped'),
-  })
-  console.log('✅ Shipping update sent to', order.shippingAddress?.email)
+  try {
+    await resend.emails.send({
+      from: 'Radhe Bloom 🌸 <onboarding@resend.dev>',
+      to: order.shippingAddress?.email,
+      subject: `📦 Your Order is Shipped! – Radhe Bloom`,
+      html: baseTemplate(content, 'Order Shipped'),
+    });
+    console.log('✅ Shipping update sent to', order.shippingAddress?.email);
+  } catch (error) {
+    console.error('❌ Shipping update failed:', error.message);
+    throw error;
+  }
 }
 
-// ══════════════════════════════════════════════════════════════════
-// 5. DELIVERY CONFIRMATION + REVIEW REQUEST
-// ══════════════════════════════════════════════════════════════════
+// ── 5. DELIVERY CONFIRMATION + REVIEW REQUEST ─────────────────────
 async function sendDeliveryConfirmation(order) {
+  if (!resend) return console.error('❌ Resend not configured. Skipping delivery confirmation.');
+
   const content = `
     <div style="text-align:center;margin-bottom:24px;">
       <div style="font-size:48px;">🏠</div>
@@ -330,7 +336,6 @@ async function sendDeliveryConfirmation(order) {
     ${orderBadge(order._id)}
     ${itemsTable(order.items || [])}
 
-    <!-- Review Request -->
     <div style="background:linear-gradient(135deg,#fff8f0,#ffefd6);border:2px solid #ffdba3;border-radius:16px;padding:24px;margin:24px 0;text-align:center;">
       <p style="font-size:28px;margin:0 0 8px;">⭐⭐⭐⭐⭐</p>
       <h3 style="color:#3d1f0a;margin:0 0 8px;font-size:18px;">How was your experience?</h3>
@@ -342,21 +347,26 @@ async function sendDeliveryConfirmation(order) {
 
     <p style="color:#888;font-size:12px;text-align:center;">
       Not happy with your order? <a href="https://wa.me/919528078217" style="color:#f97f0a;">Contact us</a> within 7 days for easy returns.
-    </p>`
+    </p>`;
 
-  await transporter.sendMail({
-    from:    `"Radhe Bloom 🌸" <${process.env.EMAIL_USER}>`,
-    to:      order.shippingAddress?.email,
-    subject: `🏠 Delivered! How was your Radhe Bloom experience? ⭐`,
-    html:    baseTemplate(content, 'Order Delivered'),
-  })
-  console.log('✅ Delivery confirmation sent to', order.shippingAddress?.email)
+  try {
+    await resend.emails.send({
+      from: 'Radhe Bloom 🌸 <onboarding@resend.dev>',
+      to: order.shippingAddress?.email,
+      subject: `🏠 Delivered! How was your Radhe Bloom experience? ⭐`,
+      html: baseTemplate(content, 'Order Delivered'),
+    });
+    console.log('✅ Delivery confirmation sent to', order.shippingAddress?.email);
+  } catch (error) {
+    console.error('❌ Delivery confirmation failed:', error.message);
+    throw error;
+  }
 }
 
-// ══════════════════════════════════════════════════════════════════
-// 6. CONTACT FORM QUERY — sent to admin
-// ══════════════════════════════════════════════════════════════════
+// ── 6. CONTACT FORM QUERY — sent to admin ─────────────────────────
 async function sendContactAlert(contact) {
+  if (!resend) return console.error('❌ Resend not configured. Skipping contact alert.');
+
   const content = `
     <h2 style="color:#3d1f0a;">📩 New Customer Query</h2>
     <p style="color:#555;">Someone submitted the contact form on Radhe Bloom.</p>
@@ -373,24 +383,27 @@ async function sendContactAlert(contact) {
       <p style="margin:0;color:#3d1f0a;font-size:14px;line-height:1.7;">${contact.message}</p>
     </div>
 
-    <div style="text-align:center;margin:24px 0;display:flex;gap:12px;justify-content:center;">
-      <a href="mailto:${contact.email}?subject=Re: ${contact.subject || 'Your Query'}" style="background:#f97f0a;color:#fff;padding:12px 24px;border-radius:50px;text-decoration:none;font-weight:bold;font-size:13px;">📧 Reply via Email</a>
-      <a href="https://wa.me/91${contact.phone?.replace(/\D/g,'')}" style="background:#25D366;color:#fff;padding:12px 24px;border-radius:50px;text-decoration:none;font-weight:bold;font-size:13px;">💬 Reply via WhatsApp</a>
-    </div>`
+    <div style="text-align:center;margin:24px 0;">
+      <a href="mailto:${contact.email}?subject=Re: ${contact.subject || 'Your Query'}" style="background:#f97f0a;color:#fff;padding:12px 24px;border-radius:50px;text-decoration:none;font-weight:bold;font-size:13px;display:inline-block;margin-right:8px;">📧 Reply via Email</a>
+      <a href="https://wa.me/91${contact.phone?.replace(/\D/g,'')}" style="background:#25D366;color:#fff;padding:12px 24px;border-radius:50px;text-decoration:none;font-weight:bold;font-size:13px;display:inline-block;">💬 Reply via WhatsApp</a>
+    </div>`;
 
-  await transporter.sendMail({
-    from:    `"Radhe Bloom Contact" <${process.env.EMAIL_USER}>`,
-    to:      process.env.ADMIN_EMAIL || process.env.EMAIL_USER,
-    subject: `📩 New Query: ${contact.subject || 'General'} — ${contact.name}`,
-    html:    baseTemplate(content, 'New Customer Query'),
-    replyTo: contact.email,
-  })
-  console.log('✅ Contact alert sent to admin')
+  try {
+    await resend.emails.send({
+      from: 'Radhe Bloom Contact <onboarding@resend.dev>',
+      to: process.env.ADMIN_EMAIL || 'hello@radhebloom.in',
+      subject: `📩 New Query: ${contact.subject || 'General'} — ${contact.name}`,
+      html: baseTemplate(content, 'New Customer Query'),
+      replyTo: contact.email, // Allows you to hit reply directly in your mail client
+    });
+    console.log('✅ Contact alert sent to admin');
+  } catch (error) {
+    console.error('❌ Contact alert failed:', error.message);
+    throw error;
+  }
 }
 
-// ══════════════════════════════════════════════════════════════════
-// EXPORTS
-// ══════════════════════════════════════════════════════════════════
+// ── EXPORTS ──────────────────────────────────────────────────────
 module.exports = {
   sendWelcomeEmail,
   sendOrderConfirmation,
@@ -398,4 +411,4 @@ module.exports = {
   sendShippingUpdate,
   sendDeliveryConfirmation,
   sendContactAlert,
-}
+};
