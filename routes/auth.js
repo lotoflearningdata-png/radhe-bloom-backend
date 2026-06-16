@@ -28,7 +28,9 @@ router.post('/register', async (req, res) => {
     try {
       const { sendWelcomeEmail } = require('../services/email')
       sendWelcomeEmail(user).catch(err => console.error('Welcome email failed:', err.message))
-    } catch {}
+    } catch (outerError) {
+      console.error('🔴 Outer Require/Setup Failed:', outerError.message)
+    }
 
     res.status(201).json({
       token,
