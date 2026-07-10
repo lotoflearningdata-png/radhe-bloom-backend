@@ -1,4 +1,4 @@
-const router  = require('express').Router()
+const router = require('express').Router()
 const Product = require('../models/Product')
 const protect = require('../middleware/auth')
 
@@ -8,10 +8,13 @@ router.get('/', async (req, res) => {
     const { category, featured, sort, search, minPrice, maxPrice, limit = 12, page = 1, exclude } = req.query
     const query = {}
 
-    if (category)  query.category = category
+    if (category) query.category = category
+    if (!req.query.category) {
+      query.category = { $ne: 'summer' }
+    }
     if (featured === 'true') query.featured = true
-    if (exclude)   query._id = { $ne: exclude }
-    if (search)    query.$text = { $search: search }
+    if (exclude) query._id = { $ne: exclude }
+    if (search) query.$text = { $search: search }
     if (minPrice || maxPrice) {
       query.price = {}
       if (minPrice) query.price.$gte = Number(minPrice)
@@ -19,11 +22,11 @@ router.get('/', async (req, res) => {
     }
 
     let sortObj = { createdAt: -1 }
-    if (sort === 'price_asc')  sortObj = { price: 1 }
+    if (sort === 'price_asc') sortObj = { price: 1 }
     if (sort === 'price_desc') sortObj = { price: -1 }
-    if (sort === 'popular')    sortObj = { reviewCount: -1 }
+    if (sort === 'popular') sortObj = { reviewCount: -1 }
 
-    const skip  = (Number(page) - 1) * Number(limit)
+    const skip = (Number(page) - 1) * Number(limit)
     const [products, total] = await Promise.all([
       Product.find(query).sort(sortObj).skip(skip).limit(Number(limit)),
       Product.countDocuments(query),
@@ -84,7 +87,7 @@ router.delete('/:id', protect, async (req, res) => {
 router.get('/sitemap.xml', async (req, res) => {
   try {
     const products = await Product.find({}, '_id slug updatedAt').limit(500)
-    const baseUrl  = 'https://radhebloom.in'
+    const baseUrl = 'https://radhebloom.in'
     const staticPages = ['', '/shop', '/shop/divine-idols', '/shop/festive-sets', '/shop/home-decor', '/shop/kids-toys']
 
     const urls = [

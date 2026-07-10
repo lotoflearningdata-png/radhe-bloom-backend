@@ -35,6 +35,9 @@ const orderSchema = new mongoose.Schema({
   trackingEvents:    [trackingEventSchema],
   emailSent:         { type: Boolean, default: false },
   isInternational:   { type: Boolean, default: false },
+  couponCode: { type: String },
+  discount:   { type: Number, default: 0 },
+
 }, { timestamps: true })
 
 module.exports = mongoose.model('Order', orderSchema)

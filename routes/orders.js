@@ -7,6 +7,7 @@ const Cart     = require('../models/Cart')
 const protect  = require('../middleware/auth')
 const shiprocket = require('../services/shiprocket')
 const { generateInvoice }          = require('../services/invoice')
+const { markCouponUsed }           = require('./coupons')
 const {
   sendOrderConfirmation,
   sendAdminOrderAlert,
@@ -105,7 +106,7 @@ router.post('/verify', async (req, res) => {
   try {
     const {
       razorpay_order_id, razorpay_payment_id, razorpay_signature,
-      shippingAddress, items, total,
+      shippingAddress, items, total, couponCode, discount,
     } = req.body
 
     // Verify signature
@@ -117,12 +118,16 @@ router.post('/verify', async (req, res) => {
       return res.status(400).json({ message: 'Invalid payment signature' })
     }
 
+    const userId = await getUserFromToken(req)
+
     // Save order to DB
     const order = await Order.create({
-      user:              await getUserFromToken(req),
+      user:              userId,
       items,
       shippingAddress,
       total,
+      couponCode:        couponCode || undefined,
+      discount:          discount || 0,
       paymentMethod:     'razorpay',
       paymentStatus:     'paid',
       status:            'confirmed',
@@ -134,6 +139,16 @@ router.post('/verify', async (req, res) => {
 
     // Populate product details for emails/invoice
     await order.populate('items.product', 'name images price category')
+
+    // Mark coupon as used (if one was applied)
+    if (couponCode) {
+      try {
+        await markCouponUsed(couponCode, userId, order._id)
+        console.log('✅ Coupon marked as used:', couponCode)
+      } catch (err) {
+        console.error('⚠️ Failed to mark coupon used (non-fatal):', err.message)
+      }
+    }
 
     // Clear cart if logged in
     if (req.headers.authorization) {
@@ -161,12 +176,16 @@ router.post('/verify', async (req, res) => {
 
 router.post('/create-international', async (req, res) => {
   try {
-    const { shippingAddress, items, total, payoneerReference } = req.body
+    const { shippingAddress, items, total, payoneerReference, couponCode, discount } = req.body
+    const userId = await getUserFromToken(req)
+
     const order = await Order.create({
-      user:              await getUserFromToken(req),
+      user:              userId,
       items,
       shippingAddress,
       total,
+      couponCode:        couponCode || undefined,
+      discount:          discount || 0,
       paymentMethod:     'payoneer',
       paymentStatus:     payoneerReference ? 'paid' : 'pending',
       status:            payoneerReference ? 'confirmed' : 'pending',
@@ -177,7 +196,18 @@ router.post('/create-international', async (req, res) => {
 
     res.status(201).json(order)
 
-    if (payoneerReference) processOrderAfterPayment(order)
+    // Only mark coupon used + run post-payment flow if payment is actually confirmed
+    if (payoneerReference) {
+      if (couponCode) {
+        try {
+          await markCouponUsed(couponCode, userId, order._id)
+          console.log('✅ Coupon marked as used (international):', couponCode)
+        } catch (err) {
+          console.error('⚠️ Failed to mark coupon used (non-fatal):', err.message)
+        }
+      }
+      processOrderAfterPayment(order)
+    }
   } catch (err) {
     res.status(500).json({ message: err.message })
   }
@@ -197,6 +227,17 @@ router.put('/:id/confirm-payoneer', protect, async (req, res) => {
     await order.save()
 
     res.json({ order })
+
+    // Mark coupon used now that payment is confirmed (if not already done)
+    if (order.couponCode) {
+      try {
+        await markCouponUsed(order.couponCode, order.user, order._id)
+        console.log('✅ Coupon marked as used (Payoneer confirmed):', order.couponCode)
+      } catch (err) {
+        console.error('⚠️ Failed to mark coupon used (non-fatal):', err.message)
+      }
+    }
+
     processOrderAfterPayment(order)
   } catch (err) {
     res.status(500).json({ message: err.message })
@@ -214,7 +255,6 @@ router.get('/:id/invoice', protect, async (req, res) => {
 
     if (!order) return res.status(404).json({ message: 'Order not found' })
 
-    // Only allow owner or admin
     if (order.user?.toString() !== req.user._id.toString() && req.user.role !== 'admin') {
       return res.status(403).json({ message: 'Not authorized' })
     }

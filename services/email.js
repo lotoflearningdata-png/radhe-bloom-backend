@@ -403,6 +403,47 @@ async function sendContactAlert(contact) {
   }
 }
 
+async function sendPasswordResetEmail(user, resetUrl) {
+  const content = `
+    <div style="text-align:center;margin-bottom:24px;">
+      <div style="width:64px;height:64px;background:#fff8f0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:28px;">🔒</div>
+      <h2 style="color:#3d1f0a;font-size:24px;margin:12px 0 4px;">Reset Your Password</h2>
+      <p style="color:#888;font-size:14px;margin:0;">We received a request to reset your password</p>
+    </div>
+
+    <p style="color:#3d1f0a;font-size:15px;">Dear <strong>${user.name}</strong>,</p>
+    <p style="color:#555;font-size:14px;line-height:1.7;">
+      Click the button below to reset your Radhe Bloom account password. This link is valid for
+      <strong>30 minutes</strong>. If you didn't request this, you can safely ignore this email —
+      your password will remain unchanged.
+    </p>
+
+    <div style="text-align:center;margin:28px 0;">
+      <a href="${resetUrl}" style="background:#f97f0a;color:#fff;padding:14px 36px;border-radius:50px;text-decoration:none;font-weight:bold;font-size:14px;display:inline-block;">
+        Reset Password
+      </a>
+    </div>
+
+    <div style="background:#fff8f0;border-left:4px solid #f97f0a;padding:14px 18px;border-radius:8px;margin:20px 0;">
+      <p style="margin:0;color:#888;font-size:12px;">
+        If the button doesn't work, copy and paste this link into your browser:
+      </p>
+      <p style="margin:8px 0 0;color:#f97f0a;font-size:12px;word-break:break-all;">${resetUrl}</p>
+    </div>
+
+    <p style="color:#888;font-size:12px;text-align:center;margin-top:24px;">
+      ⏱ This link expires in 30 minutes for your security.
+    </p>`
+
+  await transporter.sendMail({
+    from:    `"Radhe Bloom 🌸" <hello@radhebloom.in>`,
+    to:      user.email,
+    subject: `🔒 Reset Your Radhe Bloom Password`,
+    html:    baseTemplate(content, 'Reset Password'),
+  })
+  console.log('✅ Password reset email sent to', user.email)
+}
+
 // ── EXPORTS ──────────────────────────────────────────────────────
 module.exports = {
   sendWelcomeEmail,
@@ -411,4 +452,5 @@ module.exports = {
   sendShippingUpdate,
   sendDeliveryConfirmation,
   sendContactAlert,
+  sendPasswordResetEmail,
 };
