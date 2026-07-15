@@ -26,7 +26,7 @@ function baseTemplate(content, title = 'Radhe Bloom') {
 
     <div style="background:linear-gradient(135deg,#1a0a00,#3d1f0a);padding:32px 40px;text-align:center;">
       <h1 style="color:#f97f0a;margin:0;font-size:28px;letter-spacing:1px;">🌸 Radhe Bloom</h1>
-      <p style="color:#d09650;margin:6px 0 0;font-size:12px;letter-spacing:3px;text-transform:uppercase;">Divine Creations from Mathura</p>
+      <p style="color:#d09650;margin:6px 0 0;font-size:12px;letter-spacing:3px;text-transform:uppercase;">Divine Creations</p>
     </div>
 
     <div style="padding:36px 40px;">
@@ -38,8 +38,8 @@ function baseTemplate(content, title = 'Radhe Bloom') {
       <p style="color:#d09650;margin:0;font-size:11px;">
         <a href="tel:+919528078217" style="color:#d09650;text-decoration:none;">+91-9528078217</a>
         &nbsp;|&nbsp;
-        <a href="mailto:hello@radhebloom.in" style="color:#d09650;text-decoration:none;">hello@radhebloom.in</a>
-        &nbsp;|&nbsp; Mathura, UP
+        <a href="mailto:radhebloom@gmail.com" style="color:#d09650;text-decoration:none;">radhebloom@gmail.com</a>
+       
       </p>
       <p style="color:#78340b;margin:8px 0 0;font-size:10px;">© ${new Date().getFullYear()} Radhe Bloom. All rights reserved.</p>
     </div>
@@ -53,7 +53,7 @@ function itemsTable(items = []) {
   const rows = items.map(item => `
     <tr>
       <td style="padding:10px 12px;border-bottom:1px solid #f3e5cc;">
-        <strong style="color:#3d1f0a;font-size:13px;">${item.product?.name || 'Product'}</strong><br/>
+        <strong style="color:#3d1f0a;font-size:13px;">${item.product?.name || 'Product'}${item.color ? ` — ${item.color}` : ''}</strong><br/>
         <span style="color:#888;font-size:11px;">${item.product?.category?.replace(/-/g,' ') || ''}</span>
       </td>
       <td style="padding:10px 12px;border-bottom:1px solid #f3e5cc;text-align:center;color:#3d1f0a;font-size:13px;">×${item.qty}</td>
@@ -123,14 +123,14 @@ async function sendWelcomeEmail(user) {
     <p style="color:#555;font-size:14px;line-height:1.7;">
       We're delighted to welcome you to the Radhe Bloom family! You now have access to our complete collection of
       handcrafted Krishna idols, MDF cutouts, festive sets, candles, gift hampers and much more — all crafted
-      with devotion from the heart of Mathura.
+      with devotion.
     </p>
 
     <div style="background:#fff8f0;border-left:4px solid #f97f0a;padding:16px 20px;border-radius:8px;margin:24px 0;">
       <p style="margin:0;color:#e06200;font-weight:bold;font-size:14px;">✨ What's waiting for you:</p>
       <ul style="margin:10px 0 0;padding-left:20px;color:#555;font-size:13px;line-height:2;">
         <li>500+ handcrafted divine products</li>
-        <li>Free shipping on orders above ₹499</li>
+        <li>Free shipping on orders above ₹999</li>
         <li>Retail & wholesale pricing available</li>
         <li>7-day easy returns</li>
       </ul>
@@ -180,7 +180,7 @@ async function sendOrderConfirmation(order, invoiceBuffer = null) {
 
     <table style="width:100%;margin-top:8px;">
       <tr><td style="color:#888;font-size:13px;padding:4px 0;">Subtotal</td><td style="text-align:right;color:#3d1f0a;font-size:13px;">₹${((order.items || []).reduce((s, i) => s + i.price * i.qty, 0)).toFixed(2)}</td></tr>
-      <tr><td style="color:#888;font-size:13px;padding:4px 0;">Shipping</td><td style="text-align:right;color:#22c55e;font-size:13px;font-weight:bold;">${order.total >= 499 ? 'FREE' : '₹49'}</td></tr>
+      <tr><td style="color:#888;font-size:13px;padding:4px 0;">Shipping</td><td style="text-align:right;color:#22c55e;font-size:13px;font-weight:bold;">${order.total >= 999 ? 'FREE' : '₹49'}</td></tr>
       <tr style="border-top:2px solid #ffdba3;"><td style="color:#3d1f0a;font-size:15px;font-weight:bold;padding-top:8px;">Total</td><td style="text-align:right;color:#f97f0a;font-size:18px;font-weight:bold;padding-top:8px;">₹${order.total?.toFixed(2)}</td></tr>
     </table>
 
@@ -256,7 +256,7 @@ async function sendAdminOrderAlert(order) {
   try {
     await resend.emails.send({
       from: 'Radhe Bloom Orders <onboarding@resend.dev>',
-      to: process.env.ADMIN_EMAIL || 'hello@radhebloom.in', 
+      to: process.env.ADMIN_EMAIL || 'radhebloom@gmail.com', 
       subject: `🛕 New Order ₹${order.total?.toFixed(2)} — ${order.shippingAddress?.name}`,
       html: baseTemplate(content, 'New Order Alert'),
     });
@@ -391,7 +391,7 @@ async function sendContactAlert(contact) {
   try {
     await resend.emails.send({
       from: 'Radhe Bloom Contact <onboarding@resend.dev>',
-      to: process.env.ADMIN_EMAIL || 'hello@radhebloom.in',
+      to: process.env.ADMIN_EMAIL || 'radhebloom@gmail.com',
       subject: `📩 New Query: ${contact.subject || 'General'} — ${contact.name}`,
       html: baseTemplate(content, 'New Customer Query'),
       replyTo: contact.email, // Allows you to hit reply directly in your mail client
@@ -435,13 +435,62 @@ async function sendPasswordResetEmail(user, resetUrl) {
       ⏱ This link expires in 30 minutes for your security.
     </p>`
 
-  await transporter.sendMail({
-    from:    `"Radhe Bloom 🌸" <hello@radhebloom.in>`,
+  if (!resend) {
+    console.error('❌ Resend not configured. Skipping password reset email.');
+    throw new Error('Email service not configured');
+  }
+
+  await resend.emails.send({
+    from:    'Radhe Bloom 🌸 <onboarding@resend.dev>',
     to:      user.email,
     subject: `🔒 Reset Your Radhe Bloom Password`,
     html:    baseTemplate(content, 'Reset Password'),
   })
   console.log('✅ Password reset email sent to', user.email)
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 8. EMAIL VERIFICATION — sent on registration / resend
+// ══════════════════════════════════════════════════════════════════
+async function sendVerificationEmail(user, verifyUrl) {
+  if (!resend) {
+    console.error('❌ Resend not configured. Skipping verification email.');
+    throw new Error('Email service not configured');
+  }
+
+  const content = `
+    <div style="text-align:center;margin-bottom:24px;">
+      <div style="width:64px;height:64px;background:#fff8f0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:28px;">📧</div>
+      <h2 style="color:#3d1f0a;font-size:24px;margin:12px 0 4px;">Verify Your Email</h2>
+      <p style="color:#888;font-size:14px;margin:0;">One quick step to unlock checkout</p>
+    </div>
+
+    <p style="color:#3d1f0a;font-size:15px;">Dear <strong>${user.name}</strong>,</p>
+    <p style="color:#555;font-size:14px;line-height:1.7;">
+      Please confirm this email address belongs to you. Verifying lets you place orders
+      and keeps your account secure. This link is valid for <strong>24 hours</strong>.
+    </p>
+
+    ${ctaButton('✅ Verify My Email', verifyUrl)}
+
+    <div style="background:#fff8f0;border-left:4px solid #f97f0a;padding:14px 18px;border-radius:8px;margin:20px 0;">
+      <p style="margin:0;color:#888;font-size:12px;">
+        If the button doesn't work, copy and paste this link into your browser:
+      </p>
+      <p style="margin:8px 0 0;color:#f97f0a;font-size:12px;word-break:break-all;">${verifyUrl}</p>
+    </div>
+
+    <p style="color:#888;font-size:12px;text-align:center;margin-top:24px;">
+      If you didn't create a Radhe Bloom account, you can safely ignore this email.
+    </p>`
+
+  await resend.emails.send({
+    from:    'Radhe Bloom 🌸 <onboarding@resend.dev>',
+    to:      user.email,
+    subject: `📧 Verify your email — Radhe Bloom`,
+    html:    baseTemplate(content, 'Verify Your Email'),
+  })
+  console.log('✅ Verification email sent to', user.email)
 }
 
 // ── EXPORTS ──────────────────────────────────────────────────────
@@ -453,4 +502,5 @@ module.exports = {
   sendDeliveryConfirmation,
   sendContactAlert,
   sendPasswordResetEmail,
+  sendVerificationEmail,
 };

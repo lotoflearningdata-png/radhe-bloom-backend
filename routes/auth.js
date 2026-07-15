@@ -16,8 +16,26 @@ const signToken = (id) =>
 const userResponse = (user) => ({
   _id: user._id, name: user.name, email: user.email,
   phone: user.phone, role: user.role, avatar: user.avatar,
-  authProvider: user.authProvider,
+  authProvider: user.authProvider, emailVerified: user.emailVerified,
 })
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
+
+// Returns the plain token; stores the hashed version + expiry on the user doc
+const setEmailVerifyToken = (user) => {
+  const token = crypto.randomBytes(32).toString('hex')
+  user.emailVerifyToken   = crypto.createHash('sha256').update(token).digest('hex')
+  user.emailVerifyExpires = Date.now() + 24 * 60 * 60 * 1000 // 24 hours
+  return token
+}
+
+const sendVerifyEmail = (user, token) => {
+  try {
+    const { sendVerificationEmail } = require('../services/email')
+    const verifyUrl = `${process.env.FRONTEND_URL || 'https://radhebloom.in'}/verify-email/${token}`
+    sendVerificationEmail(user, verifyUrl).catch(err => console.error('Verification email failed:', err.message))
+  } catch {}
+}
 
 // ══════════════════════════════════════════════════════════════════
 // REGISTER (email + password) — no phone required anymore
@@ -28,17 +46,26 @@ router.post('/register', async (req, res) => {
     if (!name || !email || !password) {
       return res.status(400).json({ message: 'Name, email and password are required' })
     }
+    if (!EMAIL_REGEX.test(email.trim())) {
+      return res.status(400).json({ message: 'Please enter a valid email address' })
+    }
+    if (password.length < 6) {
+      return res.status(400).json({ message: 'Password must be at least 6 characters' })
+    }
 
     const exists = await User.findOne({ email: email.toLowerCase() })
     if (exists) return res.status(400).json({ message: 'Email already registered' })
 
     const hashed = await bcrypt.hash(password, 12)
-    const user   = await User.create({
-      name, email: email.toLowerCase(), password: hashed, authProvider: 'local',
+    const user   = new User({
+      name, email: email.trim().toLowerCase(), password: hashed, authProvider: 'local',
     })
-    const token  = signToken(user._id)
+    const verifyToken = setEmailVerifyToken(user)
+    await user.save()
+    const token = signToken(user._id)
 
-    // Send welcome email (non-blocking)
+    // Send verification + welcome emails (non-blocking)
+    sendVerifyEmail(user, verifyToken)
     try {
       const { sendWelcomeEmail } = require('../services/email')
       sendWelcomeEmail(user).catch(err => console.error('Welcome email failed:', err.message))
@@ -97,11 +124,15 @@ router.post('/google', async (req, res) => {
     let user = await User.findOne({ $or: [{ googleId }, { email: email.toLowerCase() }] })
 
     if (user) {
-      // Link Google to existing account if not already linked
-      if (!user.googleId) {
-        user.googleId = googleId
+      // Link Google to existing account if not already linked; Google has
+      // verified this email, so the account counts as verified too
+      if (!user.googleId || !user.emailVerified) {
+        user.googleId = user.googleId || googleId
         user.authProvider = user.authProvider === 'local' ? 'local' : 'google' // keep local if they have a password
         user.avatar = user.avatar || picture
+        user.emailVerified = true
+        user.emailVerifyToken   = undefined
+        user.emailVerifyExpires = undefined
         await user.save()
       }
     } else {
@@ -112,6 +143,7 @@ router.post('/google', async (req, res) => {
         googleId,
         authProvider: 'google',
         avatar: picture,
+        emailVerified: true,
       })
 
       // Send welcome email
@@ -126,6 +158,61 @@ router.post('/google', async (req, res) => {
   } catch (err) {
     console.error('Google auth error:', err.message)
     res.status(401).json({ message: 'Google sign-in failed. Please try again.' })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════════
+// VERIFY EMAIL — clicked from the verification email
+// ══════════════════════════════════════════════════════════════════
+router.post('/verify-email/:token', async (req, res) => {
+  try {
+    const hashedToken = crypto.createHash('sha256').update(req.params.token).digest('hex')
+
+    const user = await User.findOne({
+      emailVerifyToken: hashedToken,
+      emailVerifyExpires: { $gt: Date.now() },
+    })
+
+    if (!user) {
+      return res.status(400).json({ message: 'Verification link is invalid or has expired. Please request a new one.' })
+    }
+
+    user.emailVerified      = true
+    user.emailVerifyToken   = undefined
+    user.emailVerifyExpires = undefined
+    await user.save()
+
+    res.json({ message: 'Email verified successfully!', user: userResponse(user) })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════════
+// RESEND VERIFICATION EMAIL (logged-in users)
+// ══════════════════════════════════════════════════════════════════
+router.post('/resend-verification', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id)
+    if (user.emailVerified) {
+      return res.json({ message: 'Your email is already verified.' })
+    }
+
+    const verifyToken = setEmailVerifyToken(user)
+    await user.save()
+
+    try {
+      const { sendVerificationEmail } = require('../services/email')
+      const verifyUrl = `${process.env.FRONTEND_URL || 'https://radhebloom.in'}/verify-email/${verifyToken}`
+      await sendVerificationEmail(user, verifyUrl)
+    } catch (err) {
+      console.error('⚠️ Verification email failed:', err.message)
+      return res.status(500).json({ message: 'Failed to send verification email. Please try again.' })
+    }
+
+    res.json({ message: `Verification email sent to ${user.email}` })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
   }
 })
 

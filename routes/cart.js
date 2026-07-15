@@ -15,12 +15,12 @@ router.get('/', protect, async (req, res) => {
 // ADD to cart
 router.post('/add', protect, async (req, res) => {
   try {
-    const { productId, qty = 1 } = req.body
+    const { productId, qty = 1, color } = req.body
     let cart = await Cart.findOne({ user: req.user._id })
     if (!cart) cart = new Cart({ user: req.user._id, items: [] })
-    const idx = cart.items.findIndex(i => i.product.toString() === productId)
+    const idx = cart.items.findIndex(i => i.product.toString() === productId && (i.color || '') === (color || ''))
     if (idx > -1) cart.items[idx].qty += qty
-    else cart.items.push({ product: productId, qty })
+    else cart.items.push({ product: productId, qty, color: color || undefined })
     await cart.save()
     await cart.populate(populate)
     res.json({ items: cart.items })
@@ -30,10 +30,10 @@ router.post('/add', protect, async (req, res) => {
 // UPDATE qty
 router.put('/update', protect, async (req, res) => {
   try {
-    const { productId, qty } = req.body
+    const { productId, qty, color } = req.body
     const cart = await Cart.findOne({ user: req.user._id })
     if (!cart) return res.status(404).json({ message: 'Cart not found' })
-    const idx = cart.items.findIndex(i => i.product.toString() === productId)
+    const idx = cart.items.findIndex(i => i.product.toString() === productId && (i.color || '') === (color || ''))
     if (idx > -1) {
       if (qty < 1) cart.items.splice(idx, 1)
       else cart.items[idx].qty = qty
@@ -49,7 +49,8 @@ router.delete('/remove/:productId', protect, async (req, res) => {
   try {
     const cart = await Cart.findOne({ user: req.user._id })
     if (!cart) return res.status(404).json({ message: 'Cart not found' })
-    cart.items = cart.items.filter(i => i.product.toString() !== req.params.productId)
+    const color = req.query.color || ''
+    cart.items = cart.items.filter(i => !(i.product.toString() === req.params.productId && (i.color || '') === color))
     await cart.save()
     await cart.populate(populate)
     res.json({ items: cart.items })

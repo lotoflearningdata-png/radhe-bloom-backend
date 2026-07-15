@@ -30,6 +30,22 @@ async function getUserFromToken(req) {
   } catch { return undefined }
 }
 
+// ── Helper: block checkout for logged-in but unverified accounts ──
+async function checkEmailVerified(req, res) {
+  const userId = await getUserFromToken(req)
+  if (!userId) return true // guest checkout — nothing to verify
+  const User = require('../models/User')
+  const user = await User.findById(userId).select('emailVerified authProvider')
+  if (user && user.authProvider === 'local' && !user.emailVerified) {
+    res.status(403).json({
+      code: 'EMAIL_NOT_VERIFIED',
+      message: 'Please verify your email before placing an order. Check your inbox for the verification link.',
+    })
+    return false
+  }
+  return true
+}
+
 // ── Helper: full post-payment flow ────────────────────────────────
 async function processOrderAfterPayment(order) {
   try {
@@ -89,15 +105,23 @@ async function processOrderAfterPayment(order) {
 // Create Razorpay order
 router.post('/create-razorpay', async (req, res) => {
   try {
+    if (!(await checkEmailVerified(req, res))) return
     const { amount } = req.body
+    const amountPaise = Math.round(Number(amount) * 100)
+    if (!Number.isFinite(amountPaise) || amountPaise < 100) {
+      return res.status(400).json({ message: 'Amount must be at least ₹1 (100 paise)' })
+    }
     const rpOrder = await razorpay.orders.create({
-      amount:   Math.round(amount * 100),
+      amount:   amountPaise,
       currency: 'INR',
       receipt:  `receipt_${Date.now()}`,
     })
-    res.json({ orderId: rpOrder.id, amount: rpOrder.amount, keyId: process.env.RAZORPAY_KEY_ID })
+    res.json({ orderId: rpOrder.id, amount: rpOrder.amount, currency: rpOrder.currency, keyId: process.env.RAZORPAY_KEY_ID })
   } catch (err) {
-    res.status(500).json({ message: 'Could not create payment order', error: err.message })
+    if (err.statusCode === 401) {
+      return res.status(401).json({ message: 'Payment gateway authentication failed — check Razorpay keys' })
+    }
+    res.status(500).json({ message: 'Could not create payment order', error: err.error?.description || err.message })
   }
 })
 
@@ -108,6 +132,10 @@ router.post('/verify', async (req, res) => {
       razorpay_order_id, razorpay_payment_id, razorpay_signature,
       shippingAddress, items, total, couponCode, discount,
     } = req.body
+
+    if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
+      return res.status(400).json({ message: 'Missing payment verification fields' })
+    }
 
     // Verify signature
     const body     = razorpay_order_id + '|' + razorpay_payment_id
@@ -176,6 +204,7 @@ router.post('/verify', async (req, res) => {
 
 router.post('/create-international', async (req, res) => {
   try {
+    if (!(await checkEmailVerified(req, res))) return
     const { shippingAddress, items, total, payoneerReference, couponCode, discount } = req.body
     const userId = await getUserFromToken(req)
 
