@@ -6,7 +6,7 @@ const Order    = require('../models/Order')
 const Cart     = require('../models/Cart')
 const protect  = require('../middleware/auth')
 const shiprocket = require('../services/shiprocket')
-const { generateInvoice }          = require('../services/invoice')
+const { generateInvoice, nextInvoiceNumber } = require('../services/invoice')
 const { markCouponUsed }           = require('./coupons')
 const {
   sendOrderConfirmation,
@@ -52,6 +52,10 @@ async function processOrderAfterPayment(order) {
     // 1. Generate PDF invoice
     let invoiceBuffer = null
     try {
+      if (!order.invoiceNumber) {
+        order.invoiceNumber = await nextInvoiceNumber()
+        await order.save()
+      }
       invoiceBuffer = await generateInvoice(order)
       console.log('✅ Invoice generated')
     } catch (err) {
@@ -166,7 +170,7 @@ router.post('/verify', async (req, res) => {
     })
 
     // Populate product details for emails/invoice
-    await order.populate('items.product', 'name images price category')
+    await order.populate('items.product', 'name images price category hsnCode gstRate')
 
     // Mark coupon as used (if one was applied)
     if (couponCode) {
@@ -221,7 +225,7 @@ router.post('/create-international', async (req, res) => {
       payoneerReference,
       isInternational:   true,
     })
-    await order.populate('items.product', 'name images price category')
+    await order.populate('items.product', 'name images price category hsnCode gstRate')
 
     res.status(201).json(order)
 
@@ -247,7 +251,7 @@ router.put('/:id/confirm-payoneer', protect, async (req, res) => {
   try {
     if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' })
     const order = await Order.findById(req.params.id)
-      .populate('items.product', 'name images price category')
+      .populate('items.product', 'name images price category hsnCode gstRate')
     if (!order) return res.status(404).json({ message: 'Order not found' })
 
     order.paymentStatus     = 'paid'
@@ -280,7 +284,7 @@ router.put('/:id/confirm-payoneer', protect, async (req, res) => {
 router.get('/:id/invoice', protect, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
-      .populate('items.product', 'name images price category')
+      .populate('items.product', 'name images price category hsnCode gstRate')
 
     if (!order) return res.status(404).json({ message: 'Order not found' })
 
@@ -331,7 +335,7 @@ router.get('/:id/tracking', async (req, res) => {
 router.get('/my', protect, async (req, res) => {
   try {
     const orders = await Order.find({ user: req.user._id })
-      .populate('items.product', 'name images price category')
+      .populate('items.product', 'name images price category hsnCode gstRate')
       .sort({ createdAt: -1 })
     res.json({ orders })
   } catch (err) {
@@ -350,7 +354,7 @@ router.get('/all', protect, async (req, res) => {
     const query = status ? { status } : {}
     const orders = await Order.find(query)
       .populate('user', 'name email')
-      .populate('items.product', 'name images price category')
+      .populate('items.product', 'name images price category hsnCode gstRate')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(Number(limit))
@@ -371,7 +375,7 @@ router.put('/:id/status', protect, async (req, res) => {
 
     const { status } = req.body
     const order = await Order.findById(req.params.id)
-      .populate('items.product', 'name images price category')
+      .populate('items.product', 'name images price category hsnCode gstRate')
     if (!order) return res.status(404).json({ message: 'Order not found' })
 
     const prevStatus = order.status

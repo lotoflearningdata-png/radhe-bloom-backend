@@ -4,6 +4,28 @@
 const PDFDocument = require('pdfkit')
 const path        = require('path')
 const fs          = require('fs')
+const Counter     = require('../models/Counter')
+
+// GST business details — set these on Render. GST section is skipped if GSTIN is missing.
+const BUSINESS = {
+  gstin:   process.env.GSTIN || '',
+  address: process.env.BUSINESS_ADDRESS || '',
+  state:   process.env.BUSINESS_STATE || '',
+}
+const SHIPPING_GST_RATE = 18 // composite supply: shipping taxed with the goods
+
+// Sequential invoice number per Indian financial year (Apr–Mar), e.g. RB/26-27/0001
+async function nextInvoiceNumber() {
+  const now = new Date()
+  const fyStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
+  const fy = `${String(fyStart).slice(2)}-${String(fyStart + 1).slice(2)}`
+  const counter = await Counter.findByIdAndUpdate(
+    `invoice-${fy}`,
+    { $inc: { seq: 1 } },
+    { new: true, upsert: true }
+  )
+  return `RB/${fy}/${String(counter.seq).padStart(4, '0')}`
+}
 
 // Brand colors
 const SAFFRON  = '#f97f0a'
@@ -39,15 +61,24 @@ async function generateInvoice(order) {
       doc.font('Helvetica').fontSize(9).fillColor('#d09650')
         .text('+91-9528078217  |  radhebloom@gmail.com', M, 85)
 
+      if (BUSINESS.address) {
+        doc.font('Helvetica').fontSize(8).fillColor('#d09650')
+          .text(BUSINESS.address, M, 99, { width: 280 })
+      }
+      if (BUSINESS.gstin) {
+        doc.font('Helvetica-Bold').fontSize(9).fillColor('#ffdba3')
+          .text(`GSTIN: ${BUSINESS.gstin}`, M, 113)
+      }
+
       // INVOICE label
       doc.font('Helvetica-Bold').fontSize(22).fillColor(SAFFRON)
-        .text('INVOICE', W - M - 100, 40, { width: 100, align: 'right' })
+        .text(BUSINESS.gstin ? 'TAX INVOICE' : 'INVOICE', W - M - 160, 40, { width: 160, align: 'right' })
 
       doc.font('Helvetica').fontSize(9).fillColor('#ffdba3')
-        .text(`#${order._id?.toString().slice(-10).toUpperCase()}`, W - M - 100, 70, { width: 100, align: 'right' })
+        .text(order.invoiceNumber || `#${order._id?.toString().slice(-10).toUpperCase()}`, W - M - 160, 70, { width: 160, align: 'right' })
 
       doc.font('Helvetica').fontSize(9).fillColor('#d09650')
-        .text(`Date: ${new Date(order.createdAt || Date.now()).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}`, W - M - 100, 85, { width: 100, align: 'right' })
+        .text(`Date: ${new Date(order.createdAt || Date.now()).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' })}`, W - M - 160, 85, { width: 160, align: 'right' })
 
       // ── BILLING & SHIPPING INFO ───────────────────────────────────
       let y = 165
@@ -74,6 +105,12 @@ async function generateInvoice(order) {
         ['Payment',      `${order.paymentMethod?.toUpperCase() || 'PAID'} — ${order.paymentStatus?.toUpperCase() || 'PAID'}`],
         ['Status',       order.status?.toUpperCase() || 'CONFIRMED'],
       ]
+      if (BUSINESS.gstin) {
+        orderDetails.push(
+          ['Place of Supply', order.shippingAddress?.state || ''],
+          ['Reverse Charge',  'No'],
+        )
+      }
 
       orderDetails.forEach(([label, value], i) => {
         doc.font('Helvetica-Bold').fontSize(8).fillColor(GRAY)
@@ -83,7 +120,7 @@ async function generateInvoice(order) {
       })
 
       // ── DIVIDER ───────────────────────────────────────────────────
-      y += 100
+      y += BUSINESS.gstin ? 118 : 100
       doc.moveTo(M, y).lineTo(W - M, y).lineWidth(0.5).strokeColor('#e5d5c0').stroke()
       y += 20
 
@@ -101,7 +138,7 @@ async function generateInvoice(order) {
 
       doc.font('Helvetica-Bold').fontSize(8).fillColor('white')
       Object.entries(cols).forEach(([key, col]) => {
-        const labels = { no: '#', name: 'PRODUCT', cat: 'CATEGORY', qty: 'QTY', price: 'PRICE', total: 'TOTAL' }
+        const labels = { no: '#', name: 'PRODUCT', cat: BUSINESS.gstin ? 'HSN / GST' : 'CATEGORY', qty: 'QTY', price: 'PRICE', total: 'TOTAL' }
         doc.text(labels[key], col.x, y + 8, { width: col.w, align: col.align })
       })
 
@@ -123,6 +160,10 @@ async function generateInvoice(order) {
 
         const productName = (item.product?.name || item.name || 'Product') + (item.color ? ` (${item.color})` : '')
         const category    = item.product?.category || ''
+        const gstRate     = item.product?.gstRate ?? 18
+        const catCell     = BUSINESS.gstin
+          ? `${item.product?.hsnCode || '-'} @ ${gstRate}%`
+          : category.replace(/-/g, ' ')
 
         doc.font('Helvetica').fontSize(8).fillColor(BROWN)
         doc.text(`${i + 1}`, cols.no.x,    rowY + 10, { width: cols.no.w,    align: cols.no.align })
@@ -130,7 +171,7 @@ async function generateInvoice(order) {
         doc.font('Helvetica').fontSize(7).fillColor(GRAY)
            .text(category, cols.name.x, rowY + 17, { width: cols.name.w })
         doc.font('Helvetica').fontSize(8).fillColor(BROWN)
-        doc.text(category.replace(/-/g, ' '), cols.cat.x, rowY + 10, { width: cols.cat.w, align: cols.cat.align })
+        doc.text(catCell, cols.cat.x, rowY + 10, { width: cols.cat.w, align: cols.cat.align })
         doc.text(qty.toString(),              cols.qty.x, rowY + 10, { width: cols.qty.w, align: cols.qty.align })
         doc.text(`Rs.${price.toFixed(2)}`,   cols.price.x, rowY + 10, { width: cols.price.w, align: cols.price.align })
         doc.font('Helvetica-Bold').fontSize(8).fillColor(BROWN)
@@ -151,6 +192,36 @@ async function generateInvoice(order) {
       const shipping = derived >= 0 && derived < 200 ? derived : (subtotal >= 999 ? 0 : 49)
       const total    = order.total || (subtotal - discount + shipping)
 
+      // GST breakup — prices are GST-inclusive, so tax is carved out of the
+      // amounts already charged; the discount reduces taxable value pro rata
+      let gstRows = []
+      if (BUSINESS.gstin) {
+        let taxable = 0, tax = 0
+        ;(order.items || []).forEach(item => {
+          const amount = (item.price || item.product?.price || 0) * (item.qty || 1)
+          const net    = subtotal > 0 ? amount - discount * (amount / subtotal) : amount
+          const rate   = item.product?.gstRate ?? 18
+          const t      = net - net / (1 + rate / 100)
+          taxable += net - t
+          tax     += t
+        })
+        if (shipping > 0) {
+          const shipTax = shipping - shipping / (1 + SHIPPING_GST_RATE / 100)
+          taxable += shipping - shipTax
+          tax     += shipTax
+        }
+        const intraState = BUSINESS.state &&
+          (order.shippingAddress?.state || '').trim().toLowerCase() === BUSINESS.state.trim().toLowerCase()
+
+        gstRows = [['Taxable Value', `Rs.${taxable.toFixed(2)}`, false]]
+        if (intraState) {
+          gstRows.push(['CGST', `Rs.${(tax / 2).toFixed(2)}`, false])
+          gstRows.push(['SGST', `Rs.${(tax / 2).toFixed(2)}`, false])
+        } else {
+          gstRows.push(['IGST', `Rs.${tax.toFixed(2)}`, false])
+        }
+      }
+
       const totalsX = W - M - 180
 
       const rows = [
@@ -160,6 +231,7 @@ async function generateInvoice(order) {
         rows.push([`Discount${order.couponCode ? ` (${order.couponCode})` : ''}`, `- Rs.${discount.toFixed(2)}`, false])
       }
       rows.push(['Shipping', shipping === 0 ? 'FREE' : `Rs.${shipping.toFixed(2)}`, false])
+      rows.push(...gstRows)
       rows.push(['TOTAL', `Rs.${total.toFixed(2)}`, true])
 
       const boxH = rows.length * 20 + 30
@@ -190,7 +262,12 @@ async function generateInvoice(order) {
            .restore()
       }
 
-      y += boxH + 25
+      y += boxH + 10
+      if (BUSINESS.gstin) {
+        doc.font('Helvetica').fontSize(7).fillColor(GRAY)
+          .text('All prices are inclusive of GST.', totalsX, y, { width: 180, align: 'right' })
+      }
+      y += 15
 
       // ── THANK YOU NOTE ────────────────────────────────────────────
       if (y < 680) {
@@ -204,7 +281,7 @@ async function generateInvoice(order) {
       doc.page.margins.bottom = 0
       doc.rect(0, doc.page.height - 50, W, 50).fill(DARK)
       doc.font('Helvetica').fontSize(8).fillColor('#d09650')
-        .text('Radhe Bloom | Divine Creations | radhebloom.in | +91-9528078217', M, doc.page.height - 32, { align: 'center', width: W - M * 2, lineBreak: false })
+        .text('Radhe Bloom | Divine Creations | radhebloom.com | +91-9528078217', M, doc.page.height - 32, { align: 'center', width: W - M * 2, lineBreak: false })
       doc.page.margins.bottom = 50
 
       // ── TRACKING INFO (if available) ──────────────────────────────
@@ -223,4 +300,4 @@ async function generateInvoice(order) {
   })
 }
 
-module.exports = { generateInvoice }
+module.exports = { generateInvoice, nextInvoiceNumber }

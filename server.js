@@ -55,7 +55,7 @@ app.use('/api/orders',   require('./routes/orders'))
 app.use('/api/coupons', require('./routes/coupons'))
 
 // Health check
-app.get('/api/health', (req, res) => res.json({ status: 'ok', message: '🌸 Radhe Bloom API running' }))
+app.get('/api/health', (req, res) => res.json({ status: 'ok', message: 'Radhe Bloom API running' }))
 
 
 const PORT = process.env.PORT || 5000

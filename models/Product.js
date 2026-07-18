@@ -15,6 +15,9 @@ const productSchema = new mongoose.Schema({
   weight:        { type: String },
   stock:         { type: Number, default: 50 },
   featured:      { type: Boolean, default: false },
+  hidden:        { type: Boolean, default: false },
+  hsnCode:       { type: String },
+  gstRate:       { type: Number, default: 18 },
   rating:        { type: Number, default: 4.2 },
   reviewCount:   { type: Number, default: 0 },
 }, { timestamps: true })

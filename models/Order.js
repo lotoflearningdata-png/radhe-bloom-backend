@@ -38,6 +38,7 @@ const orderSchema = new mongoose.Schema({
   isInternational:   { type: Boolean, default: false },
   couponCode: { type: String },
   discount:   { type: Number, default: 0 },
+  invoiceNumber: { type: String },
 
 }, { timestamps: true })
 

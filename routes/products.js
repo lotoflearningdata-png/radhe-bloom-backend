@@ -5,9 +5,10 @@ const protect = require('../middleware/auth')
 // GET all products with filters
 router.get('/', async (req, res) => {
   try {
-    const { category, featured, sort, search, minPrice, maxPrice, limit = 12, page = 1, exclude } = req.query
+    const { category, featured, sort, search, minPrice, maxPrice, limit = 12, page = 1, exclude, includeHidden } = req.query
     const query = {}
 
+    if (includeHidden !== 'true') query.hidden = { $ne: true }
     if (category) query.category = category
     if (!req.query.category) {
       query.category = { $ne: 'summer' }
@@ -42,7 +43,9 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const product = await Product.findById(req.params.id)
-    if (!product) return res.status(404).json({ message: 'Product not found' })
+    if (!product || (product.hidden && req.query.includeHidden !== 'true')) {
+      return res.status(404).json({ message: 'Product not found' })
+    }
     res.json({ product })
   } catch (err) {
     res.status(500).json({ message: err.message })
@@ -86,7 +89,7 @@ router.delete('/:id', protect, async (req, res) => {
 // Sitemap XML
 router.get('/sitemap.xml', async (req, res) => {
   try {
-    const products = await Product.find({}, '_id slug updatedAt').limit(500)
+    const products = await Product.find({ hidden: { $ne: true } }, '_id slug updatedAt').limit(500)
     const baseUrl = 'https://radhebloom.in'
     const staticPages = ['', '/shop', '/shop/divine-idols', '/shop/festive-sets', '/shop/home-decor', '/shop/kids-toys']
 

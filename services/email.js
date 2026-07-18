@@ -25,7 +25,7 @@ function baseTemplate(content, title = 'Radhe Bloom') {
   <div style="max-width:600px;margin:24px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(249,127,10,0.12);">
 
     <div style="background:linear-gradient(135deg,#1a0a00,#3d1f0a);padding:32px 40px;text-align:center;">
-      <h1 style="color:#f97f0a;margin:0;font-size:28px;letter-spacing:1px;">🌸 Radhe Bloom</h1>
+      <h1 style="color:#f97f0a;margin:0;font-size:28px;letter-spacing:1px;">Radhe Bloom</h1>
       <p style="color:#d09650;margin:6px 0 0;font-size:12px;letter-spacing:3px;text-transform:uppercase;">Divine Creations</p>
     </div>
 
@@ -34,7 +34,7 @@ function baseTemplate(content, title = 'Radhe Bloom') {
     </div>
 
     <div style="background:#1a0a00;padding:20px 40px;text-align:center;">
-      <p style="color:#f97f0a;margin:0 0 6px;font-size:13px;">🌸 Radhe Bloom</p>
+      <p style="color:#f97f0a;margin:0 0 6px;font-size:13px;">Radhe Bloom</p>
       <p style="color:#d09650;margin:0;font-size:11px;">
         <a href="tel:+919528078217" style="color:#d09650;text-decoration:none;">+91-9528078217</a>
         &nbsp;|&nbsp;
@@ -144,9 +144,9 @@ async function sendWelcomeEmail(user) {
 
   try {
     await resend.emails.send({
-      from: 'Radhe Bloom 🌸 <onboarding@resend.dev>', // Keep onboarding@resend.dev until domain is verified
+      from: 'Radhe Bloom <no-reply@orders.radhebloom.com>',
       to: user.email,
-      subject: `Welcome to Radhe Bloom, ${user.name}! 🌸`,
+      subject: `Welcome to Radhe Bloom, ${user.name}!`,
       html: baseTemplate(content, 'Welcome to Radhe Bloom'),
     });
     console.log('✅ Welcome email sent to', user.email);
@@ -199,7 +199,7 @@ async function sendOrderConfirmation(order, invoiceBuffer = null) {
     <p style="color:#888;font-size:12px;text-align:center;">We'll send you another email once your order is shipped.</p>`;
 
   const emailPayload = {
-    from: 'Radhe Bloom 🌸 <onboarding@resend.dev>',
+    from: 'Radhe Bloom <no-reply@orders.radhebloom.com>',
     to: order.shippingAddress?.email,
     subject: `✅ Order Confirmed #${order._id?.toString().slice(-8).toUpperCase()} – Radhe Bloom`,
     html: baseTemplate(content, 'Order Confirmed'),
@@ -255,7 +255,7 @@ async function sendAdminOrderAlert(order) {
 
   try {
     await resend.emails.send({
-      from: 'Radhe Bloom Orders <onboarding@resend.dev>',
+      from: 'Radhe Bloom Orders <no-reply@orders.radhebloom.com>',
       to: process.env.ADMIN_EMAIL || 'radhebloom@gmail.com', 
       subject: `🛕 New Order ₹${order.total?.toFixed(2)} — ${order.shippingAddress?.name}`,
       html: baseTemplate(content, 'New Order Alert'),
@@ -304,7 +304,7 @@ async function sendShippingUpdate(order) {
 
   try {
     await resend.emails.send({
-      from: 'Radhe Bloom 🌸 <onboarding@resend.dev>',
+      from: 'Radhe Bloom <no-reply@orders.radhebloom.com>',
       to: order.shippingAddress?.email,
       subject: `📦 Your Order is Shipped! – Radhe Bloom`,
       html: baseTemplate(content, 'Order Shipped'),
@@ -351,7 +351,7 @@ async function sendDeliveryConfirmation(order) {
 
   try {
     await resend.emails.send({
-      from: 'Radhe Bloom 🌸 <onboarding@resend.dev>',
+      from: 'Radhe Bloom <no-reply@orders.radhebloom.com>',
       to: order.shippingAddress?.email,
       subject: `🏠 Delivered! How was your Radhe Bloom experience? ⭐`,
       html: baseTemplate(content, 'Order Delivered'),
@@ -390,7 +390,7 @@ async function sendContactAlert(contact) {
 
   try {
     await resend.emails.send({
-      from: 'Radhe Bloom Contact <onboarding@resend.dev>',
+      from: 'Radhe Bloom Contact <no-reply@orders.radhebloom.com>',
       to: process.env.ADMIN_EMAIL || 'radhebloom@gmail.com',
       subject: `📩 New Query: ${contact.subject || 'General'} — ${contact.name}`,
       html: baseTemplate(content, 'New Customer Query'),
@@ -441,7 +441,7 @@ async function sendPasswordResetEmail(user, resetUrl) {
   }
 
   await resend.emails.send({
-    from:    'Radhe Bloom 🌸 <onboarding@resend.dev>',
+    from:    'Radhe Bloom <no-reply@orders.radhebloom.com>',
     to:      user.email,
     subject: `🔒 Reset Your Radhe Bloom Password`,
     html:    baseTemplate(content, 'Reset Password'),
@@ -485,7 +485,7 @@ async function sendVerificationEmail(user, verifyUrl) {
     </p>`
 
   await resend.emails.send({
-    from:    'Radhe Bloom 🌸 <onboarding@resend.dev>',
+    from:    'Radhe Bloom <no-reply@orders.radhebloom.com>',
     to:      user.email,
     subject: `📧 Verify your email — Radhe Bloom`,
     html:    baseTemplate(content, 'Verify Your Email'),
