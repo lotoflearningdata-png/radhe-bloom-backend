@@ -6,7 +6,9 @@ const productSchema = new mongoose.Schema({
   description:   { type: String, required: true },
   price:         { type: Number, required: true },
   originalPrice: { type: Number },
-  category:      { type: String, required: true, enum: ['divine-idols', 'festive-sets', 'home-decor', 'kids-toys', 'candles', 'gift-sets', 'summer', 'rangoli'] },
+  // category slugs are managed dynamically in the Category collection
+  category:      { type: String, required: true },
+  categories:    [{ type: String }], // optional additional categories
   images:        [{ type: String }],
   colour:        { type: String },
   colorVariants: [{ type: String }],

@@ -132,7 +132,6 @@ async function sendWelcomeEmail(user) {
         <li>500+ handcrafted divine products</li>
         <li>Free shipping on orders above ₹999</li>
         <li>Retail & wholesale pricing available</li>
-        <li>7-day easy returns</li>
       </ul>
     </div>
 
@@ -180,7 +179,7 @@ async function sendOrderConfirmation(order, invoiceBuffer = null) {
 
     <table style="width:100%;margin-top:8px;">
       <tr><td style="color:#888;font-size:13px;padding:4px 0;">Subtotal</td><td style="text-align:right;color:#3d1f0a;font-size:13px;">₹${((order.items || []).reduce((s, i) => s + i.price * i.qty, 0)).toFixed(2)}</td></tr>
-      <tr><td style="color:#888;font-size:13px;padding:4px 0;">Shipping</td><td style="text-align:right;color:#22c55e;font-size:13px;font-weight:bold;">${order.total >= 999 ? 'FREE' : '₹49'}</td></tr>
+      <tr><td style="color:#888;font-size:13px;padding:4px 0;">Shipping</td><td style="text-align:right;color:#22c55e;font-size:13px;font-weight:bold;">${order.total >= 999 ? 'FREE' : '₹69'}</td></tr>
       <tr style="border-top:2px solid #ffdba3;"><td style="color:#3d1f0a;font-size:15px;font-weight:bold;padding-top:8px;">Total</td><td style="text-align:right;color:#f97f0a;font-size:18px;font-weight:bold;padding-top:8px;">₹${order.total?.toFixed(2)}</td></tr>
     </table>
 
@@ -346,7 +345,7 @@ async function sendDeliveryConfirmation(order) {
     ${whatsappButton(order._id)}
 
     <p style="color:#888;font-size:12px;text-align:center;">
-      Not happy with your order? <a href="https://wa.me/919528078217" style="color:#f97f0a;">Contact us</a> within 7 days for easy returns.
+      Questions about your order? <a href="https://wa.me/919528078217" style="color:#f97f0a;">Contact us</a> on WhatsApp anytime.
     </p>`;
 
   try {

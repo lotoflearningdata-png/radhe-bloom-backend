@@ -9,7 +9,7 @@ router.get('/', async (req, res) => {
     const query = {}
 
     if (includeHidden !== 'true') query.hidden = { $ne: true }
-    if (category) query.category = category
+    if (category) query.$or = [{ category }, { categories: category }]
     if (!req.query.category) {
       query.category = { $ne: 'summer' }
     }
@@ -89,9 +89,13 @@ router.delete('/:id', protect, async (req, res) => {
 // Sitemap XML
 router.get('/sitemap.xml', async (req, res) => {
   try {
-    const products = await Product.find({ hidden: { $ne: true } }, '_id slug updatedAt').limit(500)
+    const Category = require('../models/Category')
+    const [products, cats] = await Promise.all([
+      Product.find({ hidden: { $ne: true } }, '_id slug updatedAt').limit(500),
+      Category.find({ hidden: { $ne: true } }, 'slug'),
+    ])
     const baseUrl = 'https://radhebloom.in'
-    const staticPages = ['', '/shop', '/shop/divine-idols', '/shop/festive-sets', '/shop/home-decor', '/shop/kids-toys']
+    const staticPages = ['', '/shop', ...cats.map(c => `/shop/${c.slug}`)]
 
     const urls = [
       ...staticPages.map(p => `

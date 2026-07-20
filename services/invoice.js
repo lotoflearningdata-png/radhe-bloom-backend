@@ -189,7 +189,7 @@ async function generateInvoice(order) {
       // doesn't reconcile (e.g. legacy orders)
       const discount = order.discount || 0
       const derived  = (order.total || 0) - subtotal + discount
-      const shipping = derived >= 0 && derived < 200 ? derived : (subtotal >= 999 ? 0 : 49)
+      const shipping = derived >= 0 && derived < 200 ? derived : (subtotal >= 999 ? 0 : 69)
       const total    = order.total || (subtotal - discount + shipping)
 
       // GST breakup — prices are GST-inclusive, so tax is carved out of the
