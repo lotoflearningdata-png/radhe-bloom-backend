@@ -158,7 +158,8 @@ async function generateInvoice(order) {
 
         doc.rect(M, rowY, W - M * 2, 28).fill(bg)
 
-        const productName = (item.product?.name || item.name || 'Product') + (item.color ? ` (${item.color})` : '')
+        const variant = [item.color, item.size].filter(Boolean).join(', ')
+        const productName = (item.product?.name || item.name || 'Product') + (variant ? ` (${variant})` : '')
         const category    = item.product?.category || ''
         const gstRate     = item.product?.gstRate ?? 18
         const catCell     = BUSINESS.gstin

@@ -1,21 +1,24 @@
 const router = require('express').Router()
+const Fuse = require('fuse.js')
 const Product = require('../models/Product')
 const protect = require('../middleware/auth')
 
 // GET all products with filters
 router.get('/', async (req, res) => {
   try {
-    const { category, featured, sort, search, minPrice, maxPrice, limit = 12, page = 1, exclude, includeHidden } = req.query
+    const { category, featured, sort, search, minPrice, maxPrice, limit = 12, page = 1, exclude, includeHidden, hasVideo } = req.query
     const query = {}
+    const andConditions = []
 
     if (includeHidden !== 'true') query.hidden = { $ne: true }
-    if (category) query.$or = [{ category }, { categories: category }]
+    if (category) andConditions.push({ $or: [{ category }, { categories: category }] })
     if (!req.query.category) {
       query.category = { $ne: 'summer' }
     }
     if (featured === 'true') query.featured = true
+    if (hasVideo === 'true') query.videoUrl = { $exists: true, $ne: '' }
     if (exclude) query._id = { $ne: exclude }
-    if (search) query.$text = { $search: search }
+    if (andConditions.length) query.$and = andConditions
     if (minPrice || maxPrice) {
       query.price = {}
       if (minPrice) query.price.$gte = Number(minPrice)
@@ -28,6 +31,21 @@ router.get('/', async (req, res) => {
     if (sort === 'popular') sortObj = { reviewCount: -1 }
 
     const skip = (Number(page) - 1) * Number(limit)
+
+    if (search) {
+      // Small catalog — fuzzy/typo-tolerant search done in-memory over the filtered set
+      const candidates = await Product.find(query).sort(sortObj)
+      const fuse = new Fuse(candidates, {
+        keys: [{ name: 'name', weight: 3 }, { name: 'description', weight: 1 }],
+        threshold: 0.4,
+        minMatchCharLength: 3,
+      })
+      const matched = fuse.search(search).map(r => r.item)
+      const total = matched.length
+      const products = matched.slice(skip, skip + Number(limit))
+      return res.json({ products, total, page: Number(page), pages: Math.ceil(total / Number(limit)) })
+    }
+
     const [products, total] = await Promise.all([
       Product.find(query).sort(sortObj).skip(skip).limit(Number(limit)),
       Product.countDocuments(query),

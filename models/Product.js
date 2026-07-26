@@ -10,11 +10,15 @@ const productSchema = new mongoose.Schema({
   category:      { type: String, required: true },
   categories:    [{ type: String }], // optional additional categories
   images:        [{ type: String }],
+  videoUrl:      { type: String },
   colour:        { type: String },
   colorVariants: [{ type: String }],
+  sizeVariants:  [{
+    label: { type: String, required: true },
+    price: { type: Number, required: true },
+  }],
   material:      { type: String },
   dimensions:    { type: String },
-  weight:        { type: String },
   stock:         { type: Number, default: 50 },
   featured:      { type: Boolean, default: false },
   hidden:        { type: Boolean, default: false },

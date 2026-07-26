@@ -53,7 +53,7 @@ function itemsTable(items = []) {
   const rows = items.map(item => `
     <tr>
       <td style="padding:10px 12px;border-bottom:1px solid #f3e5cc;">
-        <strong style="color:#3d1f0a;font-size:13px;">${item.product?.name || 'Product'}${item.color ? ` — ${item.color}` : ''}</strong><br/>
+        <strong style="color:#3d1f0a;font-size:13px;">${item.product?.name || 'Product'}${[item.color, item.size].filter(Boolean).length ? ` — ${[item.color, item.size].filter(Boolean).join(', ')}` : ''}</strong><br/>
         <span style="color:#888;font-size:11px;">${item.product?.category?.replace(/-/g,' ') || ''}</span>
       </td>
       <td style="padding:10px 12px;border-bottom:1px solid #f3e5cc;text-align:center;color:#3d1f0a;font-size:13px;">×${item.qty}</td>
@@ -225,9 +225,10 @@ async function sendOrderConfirmation(order, invoiceBuffer = null) {
 async function sendAdminOrderAlert(order) {
   if (!resend) return console.error('❌ Resend not configured. Skipping admin order alert.');
 
-  const itemsList = (order.items || []).map(i =>
-    `<li>${i.product?.name || 'Product'} × ${i.qty} = ₹${(i.price * i.qty).toFixed(2)}</li>`
-  ).join('')
+  const itemsList = (order.items || []).map(i => {
+    const variant = [i.color, i.size].filter(Boolean).join(', ')
+    return `<li>${i.product?.name || 'Product'}${variant ? ` (${variant})` : ''} × ${i.qty} = ₹${(i.price * i.qty).toFixed(2)}</li>`
+  }).join('')
 
   const content = `
     <h2 style="color:#3d1f0a;">🛕 New Order Received!</h2>

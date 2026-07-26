@@ -203,6 +203,77 @@ router.post('/verify', async (req, res) => {
 })
 
 // ══════════════════════════════════════════════════════════════════
+// CASH ON DELIVERY (Domestic)
+// ══════════════════════════════════════════════════════════════════
+
+router.post('/create-cod', async (req, res) => {
+  try {
+    if (!(await checkEmailVerified(req, res))) return
+    const { shippingAddress, items, total, couponCode, discount } = req.body
+    const userId = await getUserFromToken(req)
+
+    const order = await Order.create({
+      user:            userId,
+      items,
+      shippingAddress: { ...shippingAddress, country: 'India' },
+      total,
+      couponCode:      couponCode || undefined,
+      discount:        discount || 0,
+      paymentMethod:   'cod',
+      paymentStatus:   'pending',
+      status:          'confirmed',
+      isInternational: false,
+    })
+
+    await order.populate('items.product', 'name images price category hsnCode gstRate')
+
+    // Mark coupon as used (order is confirmed even though payment is collected on delivery)
+    if (couponCode) {
+      try {
+        await markCouponUsed(couponCode, userId, order._id)
+        console.log('✅ Coupon marked as used (COD):', couponCode)
+      } catch (err) {
+        console.error('⚠️ Failed to mark coupon used (non-fatal):', err.message)
+      }
+    }
+
+    // Clear cart if logged in
+    if (req.headers.authorization) {
+      try {
+        const jwt     = require('jsonwebtoken')
+        const decoded = jwt.verify(req.headers.authorization.split(' ')[1], process.env.JWT_SECRET)
+        await Cart.findOneAndUpdate({ user: decoded.id }, { items: [] })
+      } catch {}
+    }
+
+    res.status(201).json(order)
+
+    // Run async (don't await — fire and forget)
+    processOrderAfterPayment(order)
+
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// Admin marks a COD order's cash as collected
+router.put('/:id/confirm-cod', protect, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' })
+    const order = await Order.findById(req.params.id)
+    if (!order) return res.status(404).json({ message: 'Order not found' })
+    if (order.paymentMethod !== 'cod') return res.status(400).json({ message: 'Not a COD order' })
+
+    order.paymentStatus = 'paid'
+    await order.save()
+
+    res.json({ order })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════════
 // PAYONEER (International)
 // ══════════════════════════════════════════════════════════════════
 

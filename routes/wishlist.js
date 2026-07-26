@@ -2,7 +2,7 @@ const router   = require('express').Router()
 const Wishlist = require('../models/Wishlist')
 const protect  = require('../middleware/auth')
 
-const populate = { path: 'products', select: 'name price originalPrice images category stock rating reviewCount badge colorVariants' }
+const populate = { path: 'products', select: 'name price originalPrice images category stock rating reviewCount badge colorVariants sizeVariants' }
 
 // GET wishlist
 router.get('/', protect, async (req, res) => {
