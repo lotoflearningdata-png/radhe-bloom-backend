@@ -19,7 +19,7 @@ const Product = require('../models/Product')
 
 function discountPrice(price) {
   const raw = price * 0.9
-  return Math.floor(raw / 10) * 10 - 1
+  return Math.floor((raw + 1) / 10) * 10 - 1
 }
 
 function normalizeMaterial(current, category) {

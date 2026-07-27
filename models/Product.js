@@ -19,6 +19,13 @@ const productSchema = new mongoose.Schema({
   }],
   material:      { type: String },
   dimensions:    { type: String },
+  // Numeric shipping package size, used for Shiprocket order creation.
+  // Defaults are a reasonable baseline for small idols/décor items until
+  // real per-product values are filled in via the admin panel.
+  weight:        { type: Number, default: 0.25 },  // kg
+  packageLength: { type: Number, default: 10 },    // cm
+  packageBreadth:{ type: Number, default: 5 },     // cm
+  packageHeight: { type: Number, default: 4 },      // cm
   stock:         { type: Number, default: 50 },
   featured:      { type: Boolean, default: false },
   hidden:        { type: Boolean, default: false },

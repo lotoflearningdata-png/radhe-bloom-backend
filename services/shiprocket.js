@@ -23,6 +23,27 @@ async function getToken() {
   }
 }
 
+// Combine each item's real package size/weight into one shipment box.
+// Heuristic: stack items on top of each other, so height sums and the
+// footprint (length/breadth) is the largest single item's footprint.
+function computeShipmentBox(items) {
+  let weight = 0
+  let length = 0, breadth = 0, height = 0
+  for (const item of items) {
+    const p = item.product || {}
+    weight  += (p.weight ?? 0.25) * item.qty
+    length   = Math.max(length, p.packageLength ?? 10)
+    breadth  = Math.max(breadth, p.packageBreadth ?? 5)
+    height  += (p.packageHeight ?? 4) * item.qty
+  }
+  return {
+    weight:  Math.max(weight, 0.05),
+    length:  Math.max(length, 1),
+    breadth: Math.max(breadth, 1),
+    height:  Math.max(height, 1),
+  }
+}
+
 // Create order in Shiprocket
 async function createShiprocketOrder(order) {
   const token = await getToken()
@@ -34,13 +55,15 @@ async function createShiprocketOrder(order) {
     selling_price: item.price,
     discount:  0,
     tax:       '',
-    hsn:       '',
+    hsn:       item.product?.hsnCode || '',
   }))
+
+  const box = computeShipmentBox(order.items)
 
   const payload = {
     order_id:          order._id.toString(),
     order_date:        new Date(order.createdAt).toISOString().split('T')[0],
-    pickup_location:   'Primary',
+    pickup_location:   process.env.SHIPROCKET_PICKUP_LOCATION || 'Primary',
     channel_id:        '',
     comment:           'Radhe Bloom Order',
     billing_customer_name:  order.shippingAddress.name,
@@ -61,10 +84,10 @@ async function createShiprocketOrder(order) {
     transaction_charges:    0,
     total_discount:         0,
     sub_total:              order.total,
-    length:                 10,
-    breadth:                10,
-    height:                 10,
-    weight:                 0.5,
+    length:                 box.length,
+    breadth:                box.breadth,
+    height:                 box.height,
+    weight:                 box.weight,
   }
 
   const { data } = await axios.post(

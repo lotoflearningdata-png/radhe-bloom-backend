@@ -35,6 +35,8 @@ const orderSchema = new mongoose.Schema({
   courierName:       { type: String },
   trackingUrl:       { type: String },
   trackingEvents:    [trackingEventSchema],
+  shippingStatus:    { type: String, enum: ['pending','created','failed','cancelled'], default: 'pending' },
+  shiprocketError:   { type: String },
   emailSent:         { type: Boolean, default: false },
   isInternational:   { type: Boolean, default: false },
   couponCode: { type: String },

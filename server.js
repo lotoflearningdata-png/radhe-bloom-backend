@@ -54,6 +54,7 @@ app.use('/api/wishlist', require('./routes/wishlist'))
 app.use('/api/orders',   require('./routes/orders'))
 app.use('/api/coupons', require('./routes/coupons'))
 app.use('/api/categories', require('./routes/categories'))
+app.use('/api/settings', require('./routes/settings'))
 
 // Health check
 app.get('/api/health', (req, res) => res.json({ status: 'ok', message: 'Radhe Bloom API running' }))

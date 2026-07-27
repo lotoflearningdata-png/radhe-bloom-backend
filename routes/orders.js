@@ -86,10 +86,15 @@ async function processOrderAfterPayment(order) {
         order.shipmentId        = srData.shipmentId
         order.awbCode           = srData.awbCode
         order.courierName       = srData.courierName
+        order.shippingStatus    = 'created'
+        order.shiprocketError   = undefined
         await order.save()
         console.log('✅ Shiprocket order created:', srData.shiprocketOrderId)
       } catch (err) {
         console.error('⚠️ Shiprocket failed (non-fatal):', err.message)
+        order.shippingStatus  = 'failed'
+        order.shiprocketError = err.response?.data?.message || err.message
+        await order.save()
       }
     }
 
@@ -170,7 +175,7 @@ router.post('/verify', async (req, res) => {
     })
 
     // Populate product details for emails/invoice
-    await order.populate('items.product', 'name images price category hsnCode gstRate')
+    await order.populate('items.product', 'name images price category hsnCode gstRate weight packageLength packageBreadth packageHeight')
 
     // Mark coupon as used (if one was applied)
     if (couponCode) {
@@ -225,7 +230,7 @@ router.post('/create-cod', async (req, res) => {
       isInternational: false,
     })
 
-    await order.populate('items.product', 'name images price category hsnCode gstRate')
+    await order.populate('items.product', 'name images price category hsnCode gstRate weight packageLength packageBreadth packageHeight')
 
     // Mark coupon as used (order is confirmed even though payment is collected on delivery)
     if (couponCode) {
@@ -296,7 +301,7 @@ router.post('/create-international', async (req, res) => {
       payoneerReference,
       isInternational:   true,
     })
-    await order.populate('items.product', 'name images price category hsnCode gstRate')
+    await order.populate('items.product', 'name images price category hsnCode gstRate weight packageLength packageBreadth packageHeight')
 
     res.status(201).json(order)
 
@@ -322,7 +327,7 @@ router.put('/:id/confirm-payoneer', protect, async (req, res) => {
   try {
     if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' })
     const order = await Order.findById(req.params.id)
-      .populate('items.product', 'name images price category hsnCode gstRate')
+      .populate('items.product', 'name images price category hsnCode gstRate weight packageLength packageBreadth packageHeight')
     if (!order) return res.status(404).json({ message: 'Order not found' })
 
     order.paymentStatus     = 'paid'
@@ -355,7 +360,7 @@ router.put('/:id/confirm-payoneer', protect, async (req, res) => {
 router.get('/:id/invoice', protect, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
-      .populate('items.product', 'name images price category hsnCode gstRate')
+      .populate('items.product', 'name images price category hsnCode gstRate weight packageLength packageBreadth packageHeight')
 
     if (!order) return res.status(404).json({ message: 'Order not found' })
 
@@ -406,7 +411,7 @@ router.get('/:id/tracking', async (req, res) => {
 router.get('/my', protect, async (req, res) => {
   try {
     const orders = await Order.find({ user: req.user._id })
-      .populate('items.product', 'name images price category hsnCode gstRate')
+      .populate('items.product', 'name images price category hsnCode gstRate weight packageLength packageBreadth packageHeight')
       .sort({ createdAt: -1 })
     res.json({ orders })
   } catch (err) {
@@ -425,7 +430,7 @@ router.get('/all', protect, async (req, res) => {
     const query = status ? { status } : {}
     const orders = await Order.find(query)
       .populate('user', 'name email')
-      .populate('items.product', 'name images price category hsnCode gstRate')
+      .populate('items.product', 'name images price category hsnCode gstRate weight packageLength packageBreadth packageHeight')
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(Number(limit))
@@ -446,7 +451,7 @@ router.put('/:id/status', protect, async (req, res) => {
 
     const { status } = req.body
     const order = await Order.findById(req.params.id)
-      .populate('items.product', 'name images price category hsnCode gstRate')
+      .populate('items.product', 'name images price category hsnCode gstRate weight packageLength packageBreadth packageHeight')
     if (!order) return res.status(404).json({ message: 'Order not found' })
 
     const prevStatus = order.status
@@ -476,6 +481,96 @@ router.put('/:id/status', protect, async (req, res) => {
     }
   } catch (err) {
     res.status(500).json({ message: err.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════════
+// CHECKOUT — Pincode serviceability check (non-blocking helper)
+// Requires SHIPROCKET_PICKUP_PINCODE to be set; otherwise reports
+// "skipped" so the frontend doesn't block checkout on missing config.
+// ══════════════════════════════════════════════════════════════════
+
+router.get('/check-pincode', async (req, res) => {
+  try {
+    const { pincode } = req.query
+    const pickupPincode = process.env.SHIPROCKET_PICKUP_PINCODE
+    if (!pincode) return res.status(400).json({ message: 'Pincode is required' })
+    if (!pickupPincode) return res.json({ skipped: true, serviceable: true })
+
+    const couriers = await shiprocket.checkServiceability(pickupPincode, pincode)
+    res.json({ skipped: false, serviceable: couriers.length > 0, courierCount: couriers.length })
+  } catch (err) {
+    // Fail open — never block checkout because the serviceability check itself broke
+    res.json({ skipped: true, serviceable: true, error: err.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════════
+// ADMIN — Retry Shiprocket order creation for a failed/pending shipment
+// ══════════════════════════════════════════════════════════════════
+
+router.post('/:id/retry-shiprocket', protect, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' })
+    const order = await Order.findById(req.params.id)
+      .populate('items.product', 'name images price category hsnCode gstRate weight packageLength packageBreadth packageHeight')
+    if (!order) return res.status(404).json({ message: 'Order not found' })
+
+    const srData = await shiprocket.createShiprocketOrder(order)
+    order.shiprocketOrderId = srData.shiprocketOrderId
+    order.shipmentId        = srData.shipmentId
+    order.awbCode           = srData.awbCode
+    order.courierName       = srData.courierName
+    order.shippingStatus    = 'created'
+    order.shiprocketError   = undefined
+    await order.save()
+
+    res.json({ order })
+  } catch (err) {
+    const message = err.response?.data?.message || err.message
+    try {
+      await Order.findByIdAndUpdate(req.params.id, { shippingStatus: 'failed', shiprocketError: message })
+    } catch {}
+    res.status(500).json({ message })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════════
+// ADMIN — Generate shipping label for an order's Shiprocket shipment
+// ══════════════════════════════════════════════════════════════════
+
+router.post('/:id/generate-label', protect, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' })
+    const order = await Order.findById(req.params.id)
+    if (!order) return res.status(404).json({ message: 'Order not found' })
+    if (!order.shipmentId) return res.status(400).json({ message: 'No Shiprocket shipment on this order yet' })
+
+    const data = await shiprocket.generateLabel(order.shipmentId)
+    res.json({ labelUrl: data.label_url || null, raw: data })
+  } catch (err) {
+    res.status(500).json({ message: err.response?.data?.message || err.message })
+  }
+})
+
+// ══════════════════════════════════════════════════════════════════
+// ADMIN — Cancel an order's Shiprocket shipment
+// ══════════════════════════════════════════════════════════════════
+
+router.post('/:id/cancel-shipment', protect, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' })
+    const order = await Order.findById(req.params.id)
+    if (!order) return res.status(404).json({ message: 'Order not found' })
+    if (!order.shiprocketOrderId) return res.status(400).json({ message: 'No Shiprocket order to cancel' })
+
+    await shiprocket.cancelOrder([order.shiprocketOrderId])
+    order.shippingStatus = 'cancelled'
+    await order.save()
+
+    res.json({ order })
+  } catch (err) {
+    res.status(500).json({ message: err.response?.data?.message || err.message })
   }
 })
 
