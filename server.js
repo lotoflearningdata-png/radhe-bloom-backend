@@ -11,7 +11,9 @@ const allowedOrigins = [
   'http://localhost:5173',                          // Local Dev
   'http://localhost:3000',                          // Alternative Local
   'https://radhebloom.in',                          // Your main domain
+  'https://www.radhebloom.in',
   'https://radhebloom.com',                         // Your other main domain
+  'https://www.radhebloom.com',
   /\.vercel\.app$/                                  // ANY Vercel preview URL (Regex)
 ];
 

@@ -161,7 +161,7 @@ async function sendWelcomeEmail(user) {
 async function sendOrderConfirmation(order, invoiceBuffer = null) {
   if (!resend) return console.error('❌ Resend not configured. Skipping order confirmation.');
 
-  const shipping = order.total - (order.items || []).reduce((s, i) => s + i.price * i.qty, 0)
+  const shipping = order.total - (order.items || []).reduce((s, i) => s + i.price * i.qty, 0) + (order.discount || 0)
   const content = `
     <div style="text-align:center;margin-bottom:24px;">
       <div style="width:64px;height:64px;background:#f0fdf4;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:28px;">✅</div>
@@ -179,7 +179,8 @@ async function sendOrderConfirmation(order, invoiceBuffer = null) {
 
     <table style="width:100%;margin-top:8px;">
       <tr><td style="color:#888;font-size:13px;padding:4px 0;">Subtotal</td><td style="text-align:right;color:#3d1f0a;font-size:13px;">₹${((order.items || []).reduce((s, i) => s + i.price * i.qty, 0)).toFixed(2)}</td></tr>
-      <tr><td style="color:#888;font-size:13px;padding:4px 0;">Shipping</td><td style="text-align:right;color:#22c55e;font-size:13px;font-weight:bold;">${order.total >= 999 ? 'FREE' : '₹69'}</td></tr>
+      <tr><td style="color:#888;font-size:13px;padding:4px 0;">Shipping</td><td style="text-align:right;color:${shipping > 0 ? '#3d1f0a' : '#22c55e'};font-size:13px;font-weight:bold;">${shipping > 0 ? '₹' + shipping.toFixed(2) : 'FREE'}</td></tr>
+      ${order.discount > 0 ? `<tr><td style="color:#888;font-size:13px;padding:4px 0;">Discount</td><td style="text-align:right;color:#22c55e;font-size:13px;font-weight:bold;">-₹${order.discount.toFixed(2)}</td></tr>` : ''}
       <tr style="border-top:2px solid #ffdba3;"><td style="color:#3d1f0a;font-size:15px;font-weight:bold;padding-top:8px;">Total</td><td style="text-align:right;color:#f97f0a;font-size:18px;font-weight:bold;padding-top:8px;">₹${order.total?.toFixed(2)}</td></tr>
     </table>
 
