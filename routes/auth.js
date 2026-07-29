@@ -21,6 +21,28 @@ const userResponse = (user) => ({
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/
 
+// Escapes regex special characters so an email can be safely used inside a RegExp
+const escapeRegex = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+
+// Attaches any past guest-checkout orders (placed with this email, no account
+// at the time) to this user's account, so they show up in "My Orders" —
+// called on every register/login/Google sign-in.
+async function linkGuestOrders(userId, email) {
+  if (!email) return
+  try {
+    const Order = require('../models/Order')
+    const result = await Order.updateMany(
+      { user: { $exists: false }, 'shippingAddress.email': { $regex: `^${escapeRegex(email)}$`, $options: 'i' } },
+      { $set: { user: userId } }
+    )
+    if (result.modifiedCount > 0) {
+      console.log(`✅ Linked ${result.modifiedCount} guest order(s) to`, email)
+    }
+  } catch (err) {
+    console.error('⚠️ Failed to link guest orders (non-fatal):', err.message)
+  }
+}
+
 // Returns the plain token; stores the hashed version + expiry on the user doc
 const setEmailVerifyToken = (user) => {
   const token = crypto.randomBytes(32).toString('hex')
@@ -63,6 +85,7 @@ router.post('/register', async (req, res) => {
     const verifyToken = setEmailVerifyToken(user)
     await user.save()
     const token = signToken(user._id)
+    await linkGuestOrders(user._id, user.email)
 
     // Send verification + welcome emails (non-blocking)
     sendVerifyEmail(user, verifyToken)
@@ -96,6 +119,7 @@ router.post('/login', async (req, res) => {
     if (!match) return res.status(401).json({ message: 'Invalid email or password' })
 
     const token = signToken(user._id)
+    await linkGuestOrders(user._id, user.email)
     res.json({ token, user: userResponse(user) })
   } catch (err) {
     res.status(500).json({ message: err.message })
@@ -154,6 +178,7 @@ router.post('/google', async (req, res) => {
     }
 
     const token = signToken(user._id)
+    await linkGuestOrders(user._id, user.email)
     res.json({ token, user: userResponse(user) })
   } catch (err) {
     console.error('Google auth error:', err.message)

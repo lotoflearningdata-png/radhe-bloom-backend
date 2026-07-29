@@ -4,6 +4,8 @@ const crypto   = require('crypto')
 const Razorpay = require('razorpay')
 const Order    = require('../models/Order')
 const Cart     = require('../models/Cart')
+const Product  = require('../models/Product')
+const Coupon   = require('../models/Coupon')
 const protect  = require('../middleware/auth')
 const shiprocket = require('../services/shiprocket')
 const { generateInvoice, nextInvoiceNumber } = require('../services/invoice')
@@ -12,8 +14,13 @@ const {
   sendOrderConfirmation,
   sendAdminOrderAlert,
   sendShippingUpdate,
+  sendCancellationEmail,
+  sendReturnRequestAlert,
+  sendReturnStatusEmail,
   sendDeliveryConfirmation,
 } = require('../services/email')
+
+const RETURN_WINDOW_MS = 2 * 24 * 60 * 60 * 1000 // 2 days
 
 const razorpay = new Razorpay({
   key_id:     process.env.RAZORPAY_KEY_ID,
@@ -44,6 +51,55 @@ async function checkEmailVerified(req, res) {
     return false
   }
   return true
+}
+
+// ── Helper: recompute cart items, shipping and discount from trusted
+// server-side data. Prices, totals and discounts are never trusted from the
+// client — otherwise a manipulated request could check out a real cart for
+// a fraction of its true price. ─────────────────────────────────────
+async function computeVerifiedOrder(items, couponCode, userId) {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw new Error('Cart is empty')
+  }
+
+  const verifiedItems = []
+  let subtotal = 0
+
+  for (const item of items) {
+    const product = await Product.findById(item.product)
+    if (!product) throw new Error('One of the items in your cart is no longer available')
+
+    let price = product.price
+    if (item.size && product.sizeVariants?.length) {
+      const variant = product.sizeVariants.find(v => v.label === item.size)
+      if (variant) price = variant.price
+    }
+
+    const qty = Math.max(1, Number(item.qty) || 1)
+    subtotal += price * qty
+    verifiedItems.push({ product: product._id, qty, color: item.color || undefined, size: item.size || undefined, price })
+  }
+
+  const shipping = subtotal >= 999 ? 0 : 69
+
+  let discount = 0
+  let verifiedCouponCode
+  if (couponCode) {
+    const coupon = await Coupon.findOne({ code: couponCode.trim().toUpperCase() })
+    if (coupon && coupon.isValidNow().valid) {
+      const userUsageCount = userId ? coupon.usedBy.filter(u => u.user?.toString() === userId).length : 0
+      if (!userId || userUsageCount < coupon.perUserLimit) {
+        const result = coupon.calculateDiscount(subtotal + shipping)
+        if (!result.error) {
+          discount = result.discount
+          verifiedCouponCode = coupon.code
+        }
+      }
+    }
+  }
+
+  const total = Math.max(0, subtotal + shipping - discount)
+  return { items: verifiedItems, subtotal, shipping, discount, total, couponCode: verifiedCouponCode }
 }
 
 // ── Helper: full post-payment flow ────────────────────────────────
@@ -139,7 +195,7 @@ router.post('/verify', async (req, res) => {
   try {
     const {
       razorpay_order_id, razorpay_payment_id, razorpay_signature,
-      shippingAddress, items, total, couponCode, discount,
+      shippingAddress, items, couponCode,
     } = req.body
 
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
@@ -157,14 +213,32 @@ router.post('/verify', async (req, res) => {
 
     const userId = await getUserFromToken(req)
 
+    // Recompute prices/total from real product data — never trust the
+    // client's cart contents or total.
+    let verified
+    try {
+      verified = await computeVerifiedOrder(items, couponCode, userId)
+    } catch (err) {
+      return res.status(400).json({ message: err.message })
+    }
+
+    // Cross-check the amount actually captured by Razorpay against our
+    // recomputed total. Without this, someone could pay for a cheap order
+    // and attach that valid signature to a fake, expensive cart.
+    const payment = await razorpay.payments.fetch(razorpay_payment_id)
+    const expectedPaise = Math.round(verified.total * 100)
+    if (payment.amount !== expectedPaise) {
+      return res.status(400).json({ message: 'Payment amount does not match order total' })
+    }
+
     // Save order to DB
     const order = await Order.create({
       user:              userId,
-      items,
+      items:             verified.items,
       shippingAddress,
-      total,
-      couponCode:        couponCode || undefined,
-      discount:          discount || 0,
+      total:             verified.total,
+      couponCode:        verified.couponCode,
+      discount:          verified.discount,
       paymentMethod:     'razorpay',
       paymentStatus:     'paid',
       status:            'confirmed',
@@ -177,11 +251,11 @@ router.post('/verify', async (req, res) => {
     // Populate product details for emails/invoice
     await order.populate('items.product', 'name images price category hsnCode gstRate weight packageLength packageBreadth packageHeight')
 
-    // Mark coupon as used (if one was applied)
-    if (couponCode) {
+    // Mark coupon as used (if one was actually applied)
+    if (verified.couponCode) {
       try {
-        await markCouponUsed(couponCode, userId, order._id)
-        console.log('✅ Coupon marked as used:', couponCode)
+        await markCouponUsed(verified.couponCode, userId, order._id)
+        console.log('✅ Coupon marked as used:', verified.couponCode)
       } catch (err) {
         console.error('⚠️ Failed to mark coupon used (non-fatal):', err.message)
       }
@@ -214,16 +288,26 @@ router.post('/verify', async (req, res) => {
 router.post('/create-cod', async (req, res) => {
   try {
     if (!(await checkEmailVerified(req, res))) return
-    const { shippingAddress, items, total, couponCode, discount } = req.body
+    const { shippingAddress, items, couponCode } = req.body
     const userId = await getUserFromToken(req)
+
+    // Recompute prices/total from real product data — this is also what
+    // determines the cash-on-delivery amount the courier collects, so it
+    // must never be trusted from the client.
+    let verified
+    try {
+      verified = await computeVerifiedOrder(items, couponCode, userId)
+    } catch (err) {
+      return res.status(400).json({ message: err.message })
+    }
 
     const order = await Order.create({
       user:            userId,
-      items,
+      items:           verified.items,
       shippingAddress: { ...shippingAddress, country: 'India' },
-      total,
-      couponCode:      couponCode || undefined,
-      discount:        discount || 0,
+      total:           verified.total,
+      couponCode:      verified.couponCode,
+      discount:        verified.discount,
       paymentMethod:   'cod',
       paymentStatus:   'pending',
       status:          'confirmed',
@@ -233,10 +317,10 @@ router.post('/create-cod', async (req, res) => {
     await order.populate('items.product', 'name images price category hsnCode gstRate weight packageLength packageBreadth packageHeight')
 
     // Mark coupon as used (order is confirmed even though payment is collected on delivery)
-    if (couponCode) {
+    if (verified.couponCode) {
       try {
-        await markCouponUsed(couponCode, userId, order._id)
-        console.log('✅ Coupon marked as used (COD):', couponCode)
+        await markCouponUsed(verified.couponCode, userId, order._id)
+        console.log('✅ Coupon marked as used (COD):', verified.couponCode)
       } catch (err) {
         console.error('⚠️ Failed to mark coupon used (non-fatal):', err.message)
       }
@@ -285,38 +369,38 @@ router.put('/:id/confirm-cod', protect, async (req, res) => {
 router.post('/create-international', async (req, res) => {
   try {
     if (!(await checkEmailVerified(req, res))) return
-    const { shippingAddress, items, total, payoneerReference, couponCode, discount } = req.body
+    const { shippingAddress, items, couponCode } = req.body
     const userId = await getUserFromToken(req)
 
+    // Recompute prices/total from real product data so the admin sees the
+    // true amount to expect when confirming payment — never trust the
+    // client's cart contents or total.
+    let verified
+    try {
+      verified = await computeVerifiedOrder(items, couponCode, userId)
+    } catch (err) {
+      return res.status(400).json({ message: err.message })
+    }
+
+    // Payment status is never trusted from the client — international orders
+    // are always created pending, and only an admin's explicit
+    // /confirm-payoneer action (after verifying payment out-of-band) marks
+    // them paid. See PUT /:id/confirm-payoneer below.
     const order = await Order.create({
       user:              userId,
-      items,
+      items:             verified.items,
       shippingAddress,
-      total,
-      couponCode:        couponCode || undefined,
-      discount:          discount || 0,
+      total:             verified.total,
+      couponCode:        verified.couponCode,
+      discount:          verified.discount,
       paymentMethod:     'payoneer',
-      paymentStatus:     payoneerReference ? 'paid' : 'pending',
-      status:            payoneerReference ? 'confirmed' : 'pending',
-      payoneerReference,
+      paymentStatus:     'pending',
+      status:            'pending',
       isInternational:   true,
     })
     await order.populate('items.product', 'name images price category hsnCode gstRate weight packageLength packageBreadth packageHeight')
 
     res.status(201).json(order)
-
-    // Only mark coupon used + run post-payment flow if payment is actually confirmed
-    if (payoneerReference) {
-      if (couponCode) {
-        try {
-          await markCouponUsed(couponCode, userId, order._id)
-          console.log('✅ Coupon marked as used (international):', couponCode)
-        } catch (err) {
-          console.error('⚠️ Failed to mark coupon used (non-fatal):', err.message)
-        }
-      }
-      processOrderAfterPayment(order)
-    }
   } catch (err) {
     res.status(500).json({ message: err.message })
   }
@@ -419,6 +503,156 @@ router.get('/my', protect, async (req, res) => {
   }
 })
 
+// Customer cancels their own order — only while it hasn't shipped yet.
+// Auto-refunds a captured Razorpay payment and cancels the Shiprocket
+// shipment if one already exists.
+router.put('/:id/cancel', protect, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id)
+      .populate('items.product', 'name images price category hsnCode gstRate weight packageLength packageBreadth packageHeight')
+    if (!order) return res.status(404).json({ message: 'Order not found' })
+
+    if (order.user?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' })
+    }
+
+    if (!['pending', 'confirmed', 'processing'].includes(order.status)) {
+      return res.status(400).json({ message: `This order can no longer be cancelled (status: ${order.status})` })
+    }
+
+    order.status = 'cancelled'
+
+    // Cancel the Shiprocket shipment too, if one was already created (non-fatal)
+    if (order.shiprocketOrderId) {
+      try {
+        await shiprocket.cancelOrder([order.shiprocketOrderId])
+        order.shippingStatus = 'cancelled'
+      } catch (err) {
+        console.error('⚠️ Shiprocket cancel failed (non-fatal):', err.message)
+      }
+    }
+
+    // Auto-refund a captured Razorpay payment
+    let refunded = false
+    if (order.paymentMethod === 'razorpay' && order.paymentStatus === 'paid') {
+      try {
+        await razorpay.payments.refund(order.paymentId, { amount: Math.round(order.total * 100) })
+        order.paymentStatus = 'refunded'
+        refunded = true
+      } catch (err) {
+        console.error('⚠️ Razorpay refund failed (non-fatal):', err.message)
+      }
+    }
+
+    await order.save()
+    res.json({ order, refunded })
+
+    try {
+      await sendCancellationEmail(order, refunded)
+    } catch (err) {
+      console.error('⚠️ Cancellation email failed (non-fatal):', err.message)
+    }
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// Customer requests a return — only within 2 days of delivery
+router.put('/:id/request-return', protect, async (req, res) => {
+  try {
+    const order = await Order.findById(req.params.id)
+    if (!order) return res.status(404).json({ message: 'Order not found' })
+
+    if (order.user?.toString() !== req.user._id.toString()) {
+      return res.status(403).json({ message: 'Not authorized' })
+    }
+
+    if (order.status !== 'delivered' || !order.deliveredAt) {
+      return res.status(400).json({ message: 'Returns can only be requested for delivered orders' })
+    }
+
+    if (order.returnStatus !== 'none') {
+      return res.status(400).json({ message: 'A return has already been requested for this order' })
+    }
+
+    if (Date.now() - new Date(order.deliveredAt).getTime() > RETURN_WINDOW_MS) {
+      return res.status(400).json({ message: 'The 2-day return window for this order has passed' })
+    }
+
+    order.returnStatus      = 'requested'
+    order.returnReason      = req.body.reason || ''
+    order.returnRequestedAt = new Date()
+    await order.save()
+
+    res.json({ order })
+
+    try {
+      await sendReturnRequestAlert(order)
+    } catch (err) {
+      console.error('⚠️ Return request alert failed (non-fatal):', err.message)
+    }
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// Admin approves a return — auto-refunds a captured Razorpay payment
+router.put('/:id/approve-return', protect, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' })
+    const order = await Order.findById(req.params.id)
+    if (!order) return res.status(404).json({ message: 'Order not found' })
+    if (order.returnStatus !== 'requested') return res.status(400).json({ message: 'No pending return request on this order' })
+
+    order.returnStatus = 'approved'
+
+    let refunded = false
+    if (order.paymentMethod === 'razorpay' && order.paymentStatus === 'paid') {
+      try {
+        await razorpay.payments.refund(order.paymentId, { amount: Math.round(order.total * 100) })
+        order.paymentStatus = 'refunded'
+        refunded = true
+      } catch (err) {
+        console.error('⚠️ Razorpay refund failed (non-fatal):', err.message)
+      }
+    }
+
+    await order.save()
+    res.json({ order, refunded })
+
+    try {
+      await sendReturnStatusEmail(order, true, refunded)
+    } catch (err) {
+      console.error('⚠️ Return status email failed (non-fatal):', err.message)
+    }
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// Admin rejects a return
+router.put('/:id/reject-return', protect, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' })
+    const order = await Order.findById(req.params.id)
+    if (!order) return res.status(404).json({ message: 'Order not found' })
+    if (order.returnStatus !== 'requested') return res.status(400).json({ message: 'No pending return request on this order' })
+
+    order.returnStatus = 'rejected'
+    await order.save()
+
+    res.json({ order })
+
+    try {
+      await sendReturnStatusEmail(order, false, false)
+    } catch (err) {
+      console.error('⚠️ Return status email failed (non-fatal):', err.message)
+    }
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
 // ══════════════════════════════════════════════════════════════════
 // ADMIN — Get all orders
 // ══════════════════════════════════════════════════════════════════
@@ -456,6 +690,9 @@ router.put('/:id/status', protect, async (req, res) => {
 
     const prevStatus = order.status
     order.status = status
+    if (status === 'delivered' && prevStatus !== 'delivered') {
+      order.deliveredAt = new Date()
+    }
     await order.save()
 
     res.json({ order })

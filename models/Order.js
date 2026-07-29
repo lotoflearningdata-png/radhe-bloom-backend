@@ -24,7 +24,7 @@ const orderSchema = new mongoose.Schema({
   total:             { type: Number, required: true },
   status:            { type: String, enum: ['pending','confirmed','processing','shipped','delivered','cancelled'], default: 'pending' },
   paymentMethod:     { type: String, enum: ['razorpay','payoneer','cod'], default: 'razorpay' },
-  paymentStatus:     { type: String, enum: ['pending','paid','failed'], default: 'pending' },
+  paymentStatus:     { type: String, enum: ['pending','paid','failed','refunded'], default: 'pending' },
   paymentId:         { type: String },
   razorpayOrderId:   { type: String },
   razorpaySignature: { type: String },
@@ -42,6 +42,12 @@ const orderSchema = new mongoose.Schema({
   couponCode: { type: String },
   discount:   { type: Number, default: 0 },
   invoiceNumber: { type: String },
+  deliveredAt: { type: Date },
+
+  // Return request — customer-initiated within 2 days of delivery
+  returnStatus:      { type: String, enum: ['none','requested','approved','rejected'], default: 'none' },
+  returnReason:       { type: String },
+  returnRequestedAt:  { type: Date },
 
 }, { timestamps: true })
 

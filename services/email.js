@@ -129,7 +129,7 @@ async function sendWelcomeEmail(user) {
     <div style="background:#fff8f0;border-left:4px solid #f97f0a;padding:16px 20px;border-radius:8px;margin:24px 0;">
       <p style="margin:0;color:#e06200;font-weight:bold;font-size:14px;">✨ What's waiting for you:</p>
       <ul style="margin:10px 0 0;padding-left:20px;color:#555;font-size:13px;line-height:2;">
-        <li>500+ handcrafted divine products</li>
+        <li>50+ handcrafted divine products</li>
         <li>Free shipping on orders above ₹999</li>
         <li>Retail & wholesale pricing available</li>
       </ul>
@@ -317,6 +317,115 @@ async function sendShippingUpdate(order) {
   }
 }
 
+// ── ORDER CANCELLED ────────────────────────────────────────────────
+async function sendCancellationEmail(order, refunded) {
+  if (!resend) return console.error('❌ Resend not configured. Skipping cancellation email.');
+
+  const content = `
+    <div style="text-align:center;margin-bottom:24px;">
+      <div style="font-size:48px;">🛑</div>
+      <h2 style="color:#3d1f0a;font-size:24px;margin:12px 0 4px;">Order Cancelled</h2>
+      <p style="color:#888;font-size:14px;margin:0;">Your order has been cancelled as requested</p>
+    </div>
+
+    <p style="color:#3d1f0a;font-size:15px;">Dear <strong>${order.shippingAddress?.name}</strong>,</p>
+    <p style="color:#555;font-size:14px;line-height:1.7;">
+      Your Radhe Bloom order has been cancelled.
+      ${refunded
+        ? ` A full refund of ₹${order.total?.toFixed(2)} has been initiated to your original payment method and should reflect within 5-7 business days.`
+        : order.paymentMethod === 'razorpay' && order.paymentStatus === 'paid'
+          ? ` We were unable to auto-process your refund — our team will process it manually and reach out shortly.`
+          : ` No payment was collected for this order.`}
+    </p>
+
+    ${orderBadge(order._id)}
+    ${whatsappButton(order._id)}
+
+    <p style="color:#888;font-size:12px;text-align:center;">If you have any questions, reach out anytime.</p>`;
+
+  try {
+    await resend.emails.send({
+      from: 'Radhe Bloom <no-reply@orders.radhebloom.com>',
+      to: order.shippingAddress?.email,
+      subject: `🛑 Your Order Has Been Cancelled – Radhe Bloom`,
+      html: baseTemplate(content, 'Order Cancelled'),
+    });
+    console.log('✅ Cancellation email sent to', order.shippingAddress?.email);
+  } catch (error) {
+    console.error('❌ Cancellation email failed:', error.message);
+    throw error;
+  }
+}
+
+// ── RETURN REQUESTED (alert to admin) ─────────────────────────────
+async function sendReturnRequestAlert(order) {
+  if (!resend) return console.error('❌ Resend not configured. Skipping return request alert.');
+
+  const content = `
+    <h2 style="color:#3d1f0a;">↩️ Return Requested</h2>
+    <p style="color:#555;">A customer has requested a return within the 2-day window.</p>
+
+    ${orderBadge(order._id)}
+
+    <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+      <tr><td style="padding:6px;color:#888;font-size:13px;">Customer</td><td style="padding:6px;color:#3d1f0a;font-weight:bold;">${order.shippingAddress?.name}</td></tr>
+      <tr><td style="padding:6px;color:#888;font-size:13px;">Phone</td><td style="padding:6px;color:#3d1f0a;">${order.shippingAddress?.phone}</td></tr>
+      <tr><td style="padding:6px;color:#888;font-size:13px;">Total</td><td style="padding:6px;color:#f97f0a;font-weight:bold;font-size:16px;">₹${order.total?.toFixed(2)}</td></tr>
+      <tr><td style="padding:6px;color:#888;font-size:13px;">Delivered</td><td style="padding:6px;color:#3d1f0a;">${order.deliveredAt ? new Date(order.deliveredAt).toLocaleDateString('en-IN') : 'N/A'}</td></tr>
+    </table>
+
+    <p style="color:#555;font-size:13px;"><strong>Reason given:</strong><br/>${order.returnReason || 'No reason provided'}</p>
+
+    ${ctaButton('Review Return in Admin', 'https://radhebloom.in/admin/orders')}`;
+
+  try {
+    await resend.emails.send({
+      from: 'Radhe Bloom Orders <no-reply@orders.radhebloom.com>',
+      to: process.env.ADMIN_EMAIL || 'radhebloom@gmail.com',
+      subject: `↩️ Return Requested — ${order.shippingAddress?.name}`,
+      html: baseTemplate(content, 'Return Requested'),
+    });
+    console.log('✅ Return request alert sent');
+  } catch (error) {
+    console.error('❌ Return request alert failed:', error.message);
+    throw error;
+  }
+}
+
+// ── RETURN APPROVED / REJECTED (to customer) ──────────────────────
+async function sendReturnStatusEmail(order, approved, refunded) {
+  if (!resend) return console.error('❌ Resend not configured. Skipping return status email.');
+
+  const content = `
+    <div style="text-align:center;margin-bottom:24px;">
+      <div style="font-size:48px;">${approved ? '✅' : '❌'}</div>
+      <h2 style="color:#3d1f0a;font-size:24px;margin:12px 0 4px;">Return ${approved ? 'Approved' : 'Not Approved'}</h2>
+    </div>
+
+    <p style="color:#3d1f0a;font-size:15px;">Dear <strong>${order.shippingAddress?.name}</strong>,</p>
+    <p style="color:#555;font-size:14px;line-height:1.7;">
+      ${approved
+        ? `Your return request has been approved.${refunded ? ` A full refund of ₹${order.total?.toFixed(2)} has been initiated to your original payment method and should reflect within 5-7 business days.` : ' Our team will contact you shortly with next steps.'}`
+        : `Unfortunately your return request could not be approved. Please reach out to us on WhatsApp if you'd like to discuss this further.`}
+    </p>
+
+    ${orderBadge(order._id)}
+    ${whatsappButton(order._id)}`;
+
+  try {
+    await resend.emails.send({
+      from: 'Radhe Bloom <no-reply@orders.radhebloom.com>',
+      to: order.shippingAddress?.email,
+      subject: `${approved ? '✅' : '❌'} Return ${approved ? 'Approved' : 'Update'} – Radhe Bloom`,
+      html: baseTemplate(content, 'Return Update'),
+    });
+    console.log('✅ Return status email sent to', order.shippingAddress?.email);
+  } catch (error) {
+    console.error('❌ Return status email failed:', error.message);
+    throw error;
+  }
+}
+
 // ── 5. DELIVERY CONFIRMATION + REVIEW REQUEST ─────────────────────
 async function sendDeliveryConfirmation(order) {
   if (!resend) return console.error('❌ Resend not configured. Skipping delivery confirmation.');
@@ -500,6 +609,9 @@ module.exports = {
   sendOrderConfirmation,
   sendAdminOrderAlert,
   sendShippingUpdate,
+  sendCancellationEmail,
+  sendReturnRequestAlert,
+  sendReturnStatusEmail,
   sendDeliveryConfirmation,
   sendContactAlert,
   sendPasswordResetEmail,
