@@ -96,6 +96,14 @@ async function createShiprocketOrder(order) {
     { headers: { Authorization: `Bearer ${token}` } }
   )
 
+  // Shiprocket returns HTTP 200 even for some failures (e.g. wrong pickup
+  // location) — the error only shows up in the body, so a missing order_id
+  // must be treated as a thrown failure or it gets silently recorded as
+  // "created" with no real shipment behind it.
+  if (!data.order_id || !data.shipment_id) {
+    throw new Error(data.message || 'Shiprocket did not return an order/shipment ID')
+  }
+
   return {
     shiprocketOrderId: data.order_id,
     shipmentId:        data.shipment_id,

@@ -66,7 +66,7 @@ router.get('/sitemap.xml', async (req, res) => {
       Product.find({ hidden: { $ne: true } }, '_id slug updatedAt').limit(500),
       Category.find({ hidden: { $ne: true } }, 'slug'),
     ])
-    const baseUrl = 'https://radhebloom.in'
+    const baseUrl = 'https://www.radhebloom.com'
     const staticPages = ['', '/shop', ...cats.map(c => `/shop/${c.slug}`)]
 
     const urls = [

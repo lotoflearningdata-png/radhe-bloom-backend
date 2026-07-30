@@ -54,7 +54,7 @@ const setEmailVerifyToken = (user) => {
 const sendVerifyEmail = (user, token) => {
   try {
     const { sendVerificationEmail } = require('../services/email')
-    const verifyUrl = `${process.env.FRONTEND_URL || 'https://radhebloom.in'}/verify-email/${token}`
+    const verifyUrl = `${process.env.FRONTEND_URL || 'https://www.radhebloom.com'}/verify-email/${token}`
     sendVerificationEmail(user, verifyUrl).catch(err => console.error('Verification email failed:', err.message))
   } catch {}
 }
@@ -228,7 +228,7 @@ router.post('/resend-verification', protect, async (req, res) => {
 
     try {
       const { sendVerificationEmail } = require('../services/email')
-      const verifyUrl = `${process.env.FRONTEND_URL || 'https://radhebloom.in'}/verify-email/${verifyToken}`
+      const verifyUrl = `${process.env.FRONTEND_URL || 'https://www.radhebloom.com'}/verify-email/${verifyToken}`
       await sendVerificationEmail(user, verifyUrl)
     } catch (err) {
       console.error('⚠️ Verification email failed:', err.message)
@@ -271,7 +271,7 @@ router.post('/forgot-password', async (req, res) => {
     // Send reset email
     try {
       const { sendPasswordResetEmail } = require('../services/email')
-      const resetUrl = `${process.env.FRONTEND_URL || 'https://radhebloom.in'}/reset-password/${resetToken}`
+      const resetUrl = `${process.env.FRONTEND_URL || 'https://www.radhebloom.com'}/reset-password/${resetToken}`
       await sendPasswordResetEmail(user, resetUrl)
       console.log('✅ Password reset email sent to', user.email)
     } catch (err) {

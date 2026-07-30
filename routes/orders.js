@@ -245,7 +245,7 @@ router.post('/verify', async (req, res) => {
       paymentId:         razorpay_payment_id,
       razorpayOrderId:   razorpay_order_id,
       razorpaySignature: razorpay_signature,
-      isInternational:   false,
+      isInternational:   (shippingAddress?.country || 'India').trim().toLowerCase() !== 'india',
     })
 
     // Populate product details for emails/invoice
