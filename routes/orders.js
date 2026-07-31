@@ -472,17 +472,58 @@ router.get('/:id/tracking', async (req, res) => {
     const order = await Order.findById(req.params.id)
     if (!order) return res.status(404).json({ message: 'Order not found' })
     let trackingData = null
-    if (order.awbCode) {
+    // Manually-entered tracking (e.g. India Post) isn't a Shiprocket AWB —
+    // calling Shiprocket's tracking API with it would just fail/return nothing.
+    if (order.awbCode && !order.manualTracking) {
       try { trackingData = await shiprocket.trackShipment(order.awbCode) } catch {}
     }
     res.json({
       order: {
         _id: order._id, status: order.status, awbCode: order.awbCode,
-        courierName: order.courierName, isInternational: order.isInternational,
+        courierName: order.courierName, trackingUrl: order.trackingUrl,
+        manualTracking: order.manualTracking, isInternational: order.isInternational,
         createdAt: order.createdAt,
       },
       trackingData,
     })
+  } catch (err) {
+    res.status(500).json({ message: err.message })
+  }
+})
+
+// Admin manually sets/overrides tracking info for an order shipped outside
+// Shiprocket (e.g. via India Post) — customer sees courier + tracking link.
+router.put('/:id/manual-tracking', protect, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Admin only' })
+    const { courierName, trackingId, trackingUrl } = req.body
+    if (!courierName?.trim() || !trackingId?.trim()) {
+      return res.status(400).json({ message: 'Courier name and tracking ID are required' })
+    }
+
+    const order = await Order.findById(req.params.id)
+      .populate('items.product', 'name images price category hsnCode gstRate weight packageLength packageBreadth packageHeight')
+    if (!order) return res.status(404).json({ message: 'Order not found' })
+
+    order.courierName    = courierName.trim()
+    order.awbCode        = trackingId.trim()
+    order.trackingUrl    = trackingUrl?.trim() || `https://t.17track.net/en#nums=${encodeURIComponent(trackingId.trim())}`
+    order.manualTracking = true
+    order.shippingStatus = 'created'
+
+    const prevStatus = order.status
+    if (['pending', 'confirmed', 'processing'].includes(order.status)) order.status = 'shipped'
+    await order.save()
+
+    res.json({ order })
+
+    if (prevStatus !== order.status) {
+      try {
+        await sendShippingUpdate(order)
+      } catch (err) {
+        console.error('⚠️ Shipping email failed:', err.message)
+      }
+    }
   } catch (err) {
     res.status(500).json({ message: err.message })
   }

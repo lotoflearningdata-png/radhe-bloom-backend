@@ -35,6 +35,7 @@ const orderSchema = new mongoose.Schema({
   courierName:       { type: String },
   trackingUrl:       { type: String },
   trackingEvents:    [trackingEventSchema],
+  manualTracking:    { type: Boolean, default: false }, // true when courier/awbCode were entered by admin (e.g. India Post) instead of coming from Shiprocket
   shippingStatus:    { type: String, enum: ['pending','created','failed','cancelled'], default: 'pending' },
   shiprocketError:   { type: String },
   emailSent:         { type: Boolean, default: false },
