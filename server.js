@@ -74,7 +74,7 @@ Disallow: /api/
 Disallow: /checkout
 Disallow: /orders
 
-Sitemap: https://radhebloom.in/sitemap.xml`)
+Sitemap: https://www.radhebloom.com/api/products/sitemap.xml`)
 })
 
 

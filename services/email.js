@@ -135,7 +135,7 @@ async function sendWelcomeEmail(user) {
       </ul>
     </div>
 
-    ${ctaButton('🛕 Start Shopping', 'https://radhebloom.in/shop')}
+    ${ctaButton('🛕 Start Shopping', 'https://www.radhebloom.com/shop')}
 
     <p style="color:#888;font-size:13px;text-align:center;margin-top:8px;">
       Questions? <a href="https://wa.me/919528078217" style="color:#f97f0a;">WhatsApp us</a> anytime!
@@ -252,7 +252,7 @@ async function sendAdminOrderAlert(order) {
     <p style="color:#555;font-size:13px;"><strong>Ship To:</strong><br/>
     ${order.shippingAddress?.address}, ${order.shippingAddress?.city}, ${order.shippingAddress?.state} - ${order.shippingAddress?.pincode}</p>
 
-    ${ctaButton('View Order in Admin', 'https://radhebloom.in/admin/orders')}`;
+    ${ctaButton('View Order in Admin', 'https://www.radhebloom.com/admin/orders')}`;
 
   try {
     await resend.emails.send({
@@ -376,7 +376,7 @@ async function sendReturnRequestAlert(order) {
 
     <p style="color:#555;font-size:13px;"><strong>Reason given:</strong><br/>${order.returnReason || 'No reason provided'}</p>
 
-    ${ctaButton('Review Return in Admin', 'https://radhebloom.in/admin/orders')}`;
+    ${ctaButton('Review Return in Admin', 'https://www.radhebloom.com/admin/orders')}`;
 
   try {
     await resend.emails.send({
@@ -450,7 +450,7 @@ async function sendDeliveryConfirmation(order) {
       <p style="font-size:28px;margin:0 0 8px;">⭐⭐⭐⭐⭐</p>
       <h3 style="color:#3d1f0a;margin:0 0 8px;font-size:18px;">How was your experience?</h3>
       <p style="color:#555;font-size:13px;margin:0 0 16px;">Your review helps other devotees find the right products. Takes just 30 seconds!</p>
-      ${ctaButton('✍️ Write a Review', `https://radhebloom.in/orders`)}
+      ${ctaButton('✍️ Write a Review', `https://www.radhebloom.com/orders`)}
     </div>
 
     ${whatsappButton(order._id)}
