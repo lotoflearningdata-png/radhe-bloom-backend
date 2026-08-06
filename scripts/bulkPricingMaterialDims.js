@@ -19,7 +19,8 @@ const Product = require('../models/Product')
 
 function discountPrice(price) {
   const raw = price * 0.9
-  return Math.floor((raw + 1) / 10) * 10 - 1
+  // True 10% off, rounded to the nearest half rupee — no ₹X9 charm-pricing.
+  return Math.round(raw * 2) / 2
 }
 
 function normalizeMaterial(current, category) {
