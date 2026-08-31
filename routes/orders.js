@@ -57,7 +57,7 @@ async function checkEmailVerified(req, res) {
 // server-side data. Prices, totals and discounts are never trusted from the
 // client — otherwise a manipulated request could check out a real cart for
 // a fraction of its true price. ─────────────────────────────────────
-async function computeVerifiedOrder(items, couponCode, userId) {
+async function computeVerifiedOrder(items, couponCode, userId, isInternational = false) {
   if (!Array.isArray(items) || items.length === 0) {
     throw new Error('Cart is empty')
   }
@@ -80,7 +80,8 @@ async function computeVerifiedOrder(items, couponCode, userId) {
     verifiedItems.push({ product: product._id, qty, color: item.color || undefined, size: item.size || undefined, price })
   }
 
-  const shipping = subtotal >= 999 ? 0 : 69
+  // International orders ship free — no shipping charges of any kind.
+  const shipping = isInternational ? 0 : (subtotal >= 999 ? 0 : 69)
 
   let discount = 0
   let verifiedCouponCode
@@ -215,9 +216,10 @@ router.post('/verify', async (req, res) => {
 
     // Recompute prices/total from real product data — never trust the
     // client's cart contents or total.
+    const isInternational = (shippingAddress?.country || 'India').trim().toLowerCase() !== 'india'
     let verified
     try {
-      verified = await computeVerifiedOrder(items, couponCode, userId)
+      verified = await computeVerifiedOrder(items, couponCode, userId, isInternational)
     } catch (err) {
       return res.status(400).json({ message: err.message })
     }
@@ -245,7 +247,7 @@ router.post('/verify', async (req, res) => {
       paymentId:         razorpay_payment_id,
       razorpayOrderId:   razorpay_order_id,
       razorpaySignature: razorpay_signature,
-      isInternational:   (shippingAddress?.country || 'India').trim().toLowerCase() !== 'india',
+      isInternational,
     })
 
     // Populate product details for emails/invoice
@@ -377,7 +379,7 @@ router.post('/create-international', async (req, res) => {
     // client's cart contents or total.
     let verified
     try {
-      verified = await computeVerifiedOrder(items, couponCode, userId)
+      verified = await computeVerifiedOrder(items, couponCode, userId, true)
     } catch (err) {
       return res.status(400).json({ message: err.message })
     }
