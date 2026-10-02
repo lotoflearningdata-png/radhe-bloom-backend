@@ -6,6 +6,7 @@ const protect = require('../middleware/auth')
 // One-time seed of the categories that used to be hardcoded (runs on first boot
 // against an empty collection; mongoose buffers this until the DB connects)
 const DEFAULTS = [
+  { name: 'Nav Durga',           slug: 'nav-durga' },
   { name: 'Janmashtami',         slug: 'janmashtami' },
   { name: 'Divine Idols',        slug: 'divine-idols' },
   { name: 'Wooden MDF Idols',    slug: 'wooden-mdf-idols' },
@@ -23,6 +24,12 @@ Category.estimatedDocumentCount()
       return Category.insertMany(DEFAULTS.map((c, i) => ({ ...c, order: i })))
         .then(() => console.log('✅ Seeded default categories'))
     }
+    // Databases seeded before Nav Durga existed still need it — add it up front
+    return Category.updateOne(
+      { slug: 'nav-durga' },
+      { $setOnInsert: { name: 'Nav Durga', slug: 'nav-durga', hidden: false, order: -1 } },
+      { upsert: true },
+    ).then(r => { if (r.upsertedCount) console.log('✅ Added Nav Durga category') })
   })
   .catch(err => console.error('⚠️ Category seed check failed:', err.message))
 
